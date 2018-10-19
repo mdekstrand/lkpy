@@ -22,6 +22,7 @@ RatingMatrix = namedtuple('RatingMatrix', ['matrix', 'users', 'items'])
     'nnz': n.int32,
     'rowptrs': n.int32[:],
     'colinds': n.int32[:],
+    'vptrs': n.optional(n.int32[:]),
     'values': n.optional(n.float64[:])
 })
 class CSR:
@@ -42,14 +43,18 @@ class CSR:
         nnz(int): the number of entries.
         rowptrs(numpy.ndarray): the row pointers.
         colinds(numpy.ndarray): the column indices.
-        values(numpy.ndarray): the values
+        vptrs(numpy.ndarray):
+            value pointers for using this CSR as an indirect index into
+            another data structure.
+        values(numpy.ndarray): the values (if present).
     """
-    def __init__(self, nrows, ncols, nnz, ptrs, inds, vals):
+    def __init__(self, nrows, ncols, nnz, ptrs, inds, vps, vals):
         self.nrows = nrows
         self.ncols = ncols
         self.nnz = nnz
         self.rowptrs = ptrs
         self.colinds = inds
+        self.vptrs = vps
         self.values = vals
 
     def row(self, row):
@@ -70,6 +75,15 @@ class CSR:
         ep = self.rowptrs[row + 1]
 
         return self.colinds[sp:ep]
+
+    def row_vps(self, row):
+        sp = self.rowptrs[row]
+        ep = self.rowptrs[row + 1]
+
+        if self.vptrs is None:
+            return None
+        else:
+            return self.vptrs[sp:ep]
 
     def row_vs(self, row):
         sp = self.rowptrs[row]
@@ -123,15 +137,19 @@ class CSR:
 
         n_rps = colptrs
         n_cis = rowinds[align].copy()
+        if values and self.vptrs is not None:
+            n_vps = self.vptrs[align].copy()
+        else:
+            n_vps = None
         if values and self.values is not None:
             n_vs = self.values[align].copy()
         else:
             n_vs = None
 
-        return CSR(self.ncols, self.nrows, self.nnz, n_rps, n_cis, n_vs)
+        return CSR(self.ncols, self.nrows, self.nnz, n_rps, n_cis, n_vps, n_vs)
 
 
-def csr_from_coo(rows, cols, vals, shape=None):
+def csr_from_coo(rows, cols, vals=None, shape=None, pointers=False):
     """
     Create a CSR matrix from data in COO format.
 
@@ -140,6 +158,7 @@ def csr_from_coo(rows, cols, vals, shape=None):
         cols(array-like): the column indices.
         vals(array-like): the data values; can be ``None``.
         shape(tuple): the array shape, or ``None`` to infer from row & column indices.
+        pointers(bool): whether to include a value pointer array for indirect indexing.
     """
     if shape is not None:
         nrows, ncols = shape
@@ -156,10 +175,12 @@ def csr_from_coo(rows, cols, vals, shape=None):
 
     _csr_align(rows, nrows, rowptrs, align)
 
-    colinds = cols[align].copy()
+    colinds = cols[align]
+    colinds = np.require(colinds, np.int32, 'C')
     values = vals[align].copy() if vals is not None else None
+    vptrs = align if pointers else None
 
-    return CSR(nrows, ncols, nnz, rowptrs, colinds, values)
+    return CSR(nrows, ncols, nnz, rowptrs, colinds, vptrs, values)
 
 
 @njit
@@ -198,7 +219,7 @@ def csr_from_scipy(mat, copy=True):
     if copy and cs is mat.indices:
         cs = cs.copy()
     vs = mat.data.copy() if copy else mat.data
-    return CSR(mat.shape[0], mat.shape[1], mat.nnz, rp, cs, vs)
+    return CSR(mat.shape[0], mat.shape[1], mat.nnz, rp, cs, None, vs)
 
 
 def csr_to_scipy(mat):

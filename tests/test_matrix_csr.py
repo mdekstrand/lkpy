@@ -54,6 +54,19 @@ def test_csr_from_coo():
     assert csr.values == approx(vals)
 
 
+def test_csr_from_coo_idx():
+    rows = np.array([0, 0, 1, 3], dtype=np.int32)
+    cols = np.array([1, 2, 0, 1], dtype=np.int32)
+    vals = np.arange(4, dtype=np.float_)
+
+    csr = lm.csr_from_coo(rows, cols, pointers=True)
+    assert csr.nrows == 4
+    assert csr.ncols == 3
+    assert csr.nnz == 4
+    assert all(csr.vptrs == np.arange(4))
+    assert vals[csr.vptrs] == approx(vals)
+
+
 def test_csr_row():
     rows = np.array([0, 0, 1, 3], dtype=np.int32)
     cols = np.array([1, 2, 0, 1], dtype=np.int32)
@@ -186,6 +199,38 @@ def test_csr_from_coo_novals():
             points = points[po]
             assert all(np.sort(csr.colinds[sp:ep]) == cols[points])
             assert np.sum(csr.row(i)) == len(points)
+
+
+def test_csr_from_coo_pointers():
+    for i in range(50):
+        nrows = 100
+        ncols = 50
+        coords = np.random.choice(np.arange(ncols * nrows, dtype=np.int32), 1000, False)
+        rows = np.mod(coords, nrows, dtype=np.int32)
+        cols = np.floor_divide(coords, nrows, dtype=np.int32)
+
+        csr = lm.csr_from_coo(rows, cols, None, (nrows, ncols), True)
+        assert csr.nrows == nrows
+        assert csr.ncols == ncols
+        assert csr.nnz == 1000
+
+        # test transposed too
+        if np.random.randint(2):
+            csr = csr.transpose()
+            rows, cols = cols, rows
+            nrows, ncols = ncols, nrows
+
+        for i in range(nrows):
+            sp = csr.rowptrs[i]
+            ep = csr.rowptrs[i+1]
+            assert ep - sp == np.sum(rows == i)
+            points, = np.nonzero(rows == i)
+            po = np.argsort(cols[points])
+            points = points[po]
+            assert all(np.sort(csr.colinds[sp:ep]) == cols[points])
+            assert np.sum(csr.row(i)) == len(points)
+            assert all(rows[csr.row_vps(i)] == i)
+            assert all(cols[csr.row_vps(i)] == csr.row_cs(i))
 
 
 def test_csr_to_sps():
