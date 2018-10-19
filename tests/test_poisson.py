@@ -19,15 +19,30 @@ simple_df = pd.DataFrame({'item': [1, 1, 2, 3],
                           'rating': [4.0, 3.0, 5.0, 2.0]})
 
 
-def test_poisson_basic_build():
+def test_poisson_init_setup():
     algo = poisson.HPF(20, validation=None)
+    mod = algo._init_params(100, algo.user_hp)
+
+    assert mod.act_rate.shape == (100,)
+    assert mod.act_shape.shape == (100,)
+    assert mod.val_rate.shape == (100, 20)
+    assert mod.val_shape.shape == (100, 20)
+
+    assert np.all(mod.act_rate > 0)
+    assert np.all(mod.act_shape > 0)
+    assert np.all(mod.val_rate > 0)
+    assert np.all(mod.val_shape > 0)
+
+
+def test_poisson_basic_build():
+    algo = poisson.HPF(20, iterations=10, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
 
 
 def test_poisson_predict_basic():
-    algo = poisson.HPF(20, validation=None)
+    algo = poisson.HPF(20, iterations=10, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
@@ -40,7 +55,7 @@ def test_poisson_predict_basic():
 
 
 def test_poisson_predict_bad_item():
-    algo = poisson.HPF(20, validation=None)
+    algo = poisson.HPF(20, iterations=10, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
@@ -52,7 +67,7 @@ def test_poisson_predict_bad_item():
 
 
 def test_poisson_predict_bad_user():
-    algo = poisson.HPF(20, validation=None)
+    algo = poisson.HPF(20, iterations=10, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None

@@ -157,13 +157,13 @@ class HPF(Predictor, Trainable):
 
         return MFModel(users, items, umat, imat)
 
-    def _init_params(self, n, hp):
-        v_shp = np.random.randn(n, self.features) * 0.01
+    def _init_params(self, nr, hp):
+        v_shp = np.random.randn(nr, self.features) * 0.01
         v_shp += hp.v_shape
-        v_rte = np.random.randn(n, self.features) * 0.01
+        v_rte = np.random.randn(nr, self.features) * 0.01
         v_rte += hp.a_shape  # FIXME double-check this
-        a_shp = np.random.randn(n) * 0.01 + hp.a_shape
-        a_rte = np.full(n, hp.a_shape + self.features * hp.v_shape)
+        a_shp = np.random.randn(nr) * 0.01 + hp.a_shape
+        a_rte = np.full(nr, hp.a_shape + self.features * hp.v_shape)
 
         return _PFHalfModel(v_shp, v_rte, a_shp, a_rte)
 
@@ -205,8 +205,11 @@ class HPF(Predictor, Trainable):
         return phi
 
     def _train_model(self, data, csr, phi, prev, other, hp):
+        "Re-train half the model"
         nrows = prev.val_shape.shape[0]
         _logger.debug('[%s] computing model update for %d rows', self.timer, nrows)
+        assert csr.nrows == nrows
+        assert csr.ncols == other.val_shape.shape[0]
         v_shp = np.empty(prev.val_shape.shape)
         v_rte = np.empty(prev.val_rate.shape)
         a_rte = np.empty(prev.act_rate.shape)
