@@ -20,14 +20,14 @@ simple_df = pd.DataFrame({'item': [1, 1, 2, 3],
 
 
 def test_poisson_basic_build():
-    algo = poisson.HPF(20, iterations=10)
+    algo = poisson.HPF(20, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
 
 
 def test_poisson_predict_basic():
-    algo = poisson.HPF(20, iterations=10)
+    algo = poisson.HPF(20, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
@@ -40,7 +40,7 @@ def test_poisson_predict_basic():
 
 
 def test_poisson_predict_bad_item():
-    algo = poisson.HPF(20, iterations=10)
+    algo = poisson.HPF(20, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
@@ -52,7 +52,7 @@ def test_poisson_predict_bad_item():
 
 
 def test_poisson_predict_bad_user():
-    algo = poisson.HPF(20, iterations=10)
+    algo = poisson.HPF(20, validation=None)
     model = algo.train(simple_df)
 
     assert model is not None
@@ -65,7 +65,7 @@ def test_poisson_predict_bad_user():
 
 @mark.slow
 def test_poisson_train_large():
-    algo = poisson.HPF(20, iterations=20)
+    algo = poisson.HPF(20)
     ratings = lktu.ml_pandas.renamed.ratings
     model = algo.train(ratings)
 
@@ -84,7 +84,7 @@ def test_poisson_batch_accuracy():
 
     ratings = lktu.ml100k.load_ratings()
 
-    algo = poisson.HPF(25, iterations=20)
+    algo = poisson.HPF(25)
 
     def eval(train, test):
         _log.info('running training')

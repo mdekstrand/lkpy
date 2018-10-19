@@ -80,15 +80,18 @@ class HPF(Predictor, Trainable):
 
     Args:
         features(int): the number of features to train
-        iterations(int): the number of iterations to train
+        iterations(int): the maximum number of iterations to train
+        validation(double): a fraction of ratings to use for convergence testing
         uhp(PFHP): user hyperparameters
         ihp(PFHP): item hyperparameters
     """
     timer = None
 
-    def __init__(self, features, iterations=20, uhp=PFHP(0.3, 0.3, 1), ihp=PFHP(0.3, 0.3, 1)):
+    def __init__(self, features, iterations=100, validation=0.01,
+                 uhp=PFHP(0.3, 0.3, 1), ihp=PFHP(0.3, 0.3, 1)):
         self.features = features
         self.iterations = iterations
+        self.validation = validation
         self.user_hp = uhp
         self.item_hp = ihp
 
@@ -111,6 +114,19 @@ class HPF(Predictor, Trainable):
         items = pd.Index(ratings.item.unique())
         nitems = len(items)
 
+        if self.validation is not None:
+            v_idx = np.random.choice(len(ratings), int(len(ratings) * self.validation),
+                                     replace=False)
+            _logger.info('[%s] withholding %d ratings for validation', self.timer, len(v_idx))
+            nv_mask = np.full(len(ratings), True)
+            nv_mask[v_idx] = False
+            probe_ratings = ratings.iloc[v_idx, :]
+            probe_ratings['user'] = users.get_indexer(probe_ratings.user)
+            probe_ratings['item'] = items.get_indexer(probe_ratings.item)
+            ratings = ratings[nv_mask]
+        else:
+            probe_ratings = None
+
         u_inds = users.get_indexer(ratings.user)
         i_inds = items.get_indexer(ratings.item)
         rates = np.require(ratings.rating.values, np.float64)
@@ -127,6 +143,11 @@ class HPF(Predictor, Trainable):
                      self.timer, self.features)
         for epoch in range(self.iterations):
             u_mod, i_mod = self._train_iter(data, u_mod, i_mod)
+            if probe_ratings is None:
+                _logger.info('[%s] finished epoch %d', self.timer, epoch)
+            else:
+                ll = self._log_like(probe_ratings, u_mod, i_mod)
+                _logger.info('[%s] finished epoch %d (log_lik=%f)', self.timer, epoch, ll)
 
         _logger.info('[%s] finalizing Poisson MF model')
         umat = u_mod.val_shape / u_mod.val_rate
@@ -212,6 +233,24 @@ class HPF(Predictor, Trainable):
             a_rte[r] = hp.a_shape / hp.a_mean + np.sum(vs_vec / vr_vec)
 
         return _PFHalfModel(v_shp, v_rte, prev.act_shape, a_rte)
+
+    def _log_like(self, ratings, umod, imod):
+        uv = ratings.user.values
+        iv = ratings.item.values
+        yv = ratings.rating.values
+
+        # convert model matrices into user/item feature matrices
+        umat = umod.val_shape / umod.val_rate
+        imat = imod.val_shape / imod.val_rate
+
+        ylks = np.sum(umat[uv, :] * imat[iv, :], axis=1)
+        ylks *= yv
+        ylks -= special.loggamma(yv)
+
+        ll = np.sum(ylks)
+        ll -= np.dot(np.sum(umat[uv, :], axis=0), np.sum(imat[iv, :], axis=0))
+
+        return ll / len(ratings)
 
     def predict(self, model: MFModel, user, items, ratings=None):
         # look up user index
