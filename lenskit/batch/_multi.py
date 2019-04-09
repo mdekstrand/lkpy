@@ -2,7 +2,10 @@ import logging
 import pathlib
 import collections
 import json
+import warnings
 from copy import copy
+
+from joblib import Parallel, delayed
 
 import pandas as pd
 
@@ -38,31 +41,86 @@ class MultiEval:
         path(str or :py:class:`pathlib.Path`):
             the working directory for this evaluation.
             It will be created if it does not exist.
+
         predict(bool):
             whether to generate rating predictions.
+
         recommend(int):
             the number of recommendations to generate per user. Any false-y value (``None``,
             ``False``, ``0``) will disable top-n. The literal value ``True`` will generate
             recommendation lists of unlimited size.
+
         candidates(function):
             the default candidate set generator for recommendations.  It should take the
             training data and return a candidate generator, itself a function mapping user
-            IDs to candidate sets.
+            IDs to candidate sets.  If ``None``, each recommender's default candidate set
+            is used.
+
+            .. note:: **Changed in 0.7** to default to ``None``.
+
+        n_jobs(None, int, tuple, or dict):
+            The number of parallel jobs to use for evaluation.  This takes a few possible
+            forms:
+
+            ``None``
+                JobLib's defaults are used.  This will be sequential evaluation, unless
+                the call to :meth:`run` is wrapped in a :func:`joblib.parallel_backend`
+                context specifying a job count.
+
+            *N*
+                When ``n_jobs`` is a single integer, it is passed as the job count to
+                :cls:`joblib.Parallel` for running the experiment jobs in this eval
+                experiment, and is also passed as the `nprocs` argument to
+                :func:`batch.predict` and :func:`batch.recommend`.
+
+            (*M*, *N*)
+                A tuple of integers provides separate job counts for outer experiment jobs
+                and recommendation or prediction within a job.  *M* is used for the
+                MultiEval parallel loop, and *N* is passed to :func:`batch.predict` and
+                :func:`batch.recomend`.  Either value can also be ``None``.
+
+            ``dict``
+                A dictionary with zero or more of the keys ``exp``, ``predict``, and
+                ``recommend`` provides full control over individual parallelism levels.
+
+            .. note::
+                Parallel experiments work better with on-disk data, either passing
+                paths to :meth:`add_dataset` or calling :meth:`persist_data`.
+
+            .. note:: ``nprocs`` is accepted as a deprecated alias for ``n_jobs=(1, nprocs)``.
+
         combine(bool):
-            whether to combine output; if ``False``, output will be left in separate files, if
+            Whether to combine output; if ``False``, output will be left in separate files, if
             ``True``, it will be in a single set of files (runs, recommendations, and predictions).
     """
 
-    def __init__(self, path, predict=True,
-                 recommend=100, candidates=topn.UnratedCandidates,
-                 nprocs=None, combine=True):
+    def __init__(self, path, predict=True, recommend=100, *, candidates=None,
+                 n_jobs=None, combine=True, **kwargs):
         self.workdir = pathlib.Path(path)
         self.predict = predict
         self.recommend = recommend
         self.candidate_generator = candidates
         self.algorithms = []
         self.datasets = []
-        self.nprocs = nprocs
+
+        if n_jobs is None and 'nprocs' in kwargs:
+            warnings.warn('nprocs is deprecated, use n_jobs', DeprecationWarning)
+            n_jobs = (1, kwargs['nprocs'])
+
+        if isinstance(n_jobs, dict):
+            self.eval_jobs = n_jobs.get('exp', None)
+            self.predict_jobs = n_jobs.get('predict', None)
+            self.recommend_jobs = n_jobs.get('recommend', None)
+        elif isinstance(n_jobs, tuple):
+            outer, inner = n_jobs
+            self.eval_jobs = outer
+            self.predict_jobs = inner
+            self.recommend_jobs = inner
+        else:
+            self.eval_jobs = n_jobs
+            self.predict_jobs = n_jobs
+            self.recommend_jobs = n_jobs
+
         self.combine_output = combine
         self._is_flat = True
 
@@ -156,14 +214,14 @@ class MultiEval:
         for i, (ds, cand_f, ds_attrs) in enumerate(self._flat_datasets()):
             train, test = ds
             if isinstance(train, pd.DataFrame):
-                fn = self.workdir / 'ds{}-train.parquet'.format(i+1)
+                fn = self.workdir / 'ds{}-train.feather'.format(i+1)
                 _logger.info('serializing to %s', fn)
-                train.to_parquet(fn)
+                train.to_feather(fn)
                 train = fn
             if isinstance(test, pd.DataFrame):
-                fn = self.workdir / 'ds{}-test.parquet'.format(i+1)
+                fn = self.workdir / 'ds{}-test.feather'.format(i+1)
                 _logger.info('serializing to %s', fn)
-                test.to_parquet(fn)
+                test.to_feather(fn)
                 test = fn
             ds2.append(((train, test), cand_f, ds_attrs))
         self.datasets = ds2
@@ -214,6 +272,7 @@ class MultiEval:
                 If provided, a specific set of runs to run.  Useful for splitting
                 an experiment into individual runs.  This is a set of 1-based run
                 IDs, not 0-based indexes.
+
             progress:
                 A :py:func:`tqdm.tqdm`-compatible progress function.
         """
@@ -226,40 +285,62 @@ class MultiEval:
 
         self.workdir.mkdir(parents=True, exist_ok=True)
 
-        run_id = 0
-        run_data = []
-        train_load = util.LastMemo(self._read_data)
-        test_load = util.LastMemo(self._read_data)
-
         iter = self._flat_runs()
-        if progress is not None:
-            n = self.run_count() if self._is_flat else None
-            iter = progress(iter, total=n)
+        n_jobs = self.exp_jobs
+        if runs is not None and len(runs) == 1:
+            n_jobs = 1
+        loop = Parallel(n_jobs=n_jobs, batch_size=1)
 
-        for i, (dsrec, arec) in enumerate(iter):
-            run_id = i + 1
-            if runs is not None and run_id not in runs:
-                _logger.info('skipping deselected run %d', run_id)
-                continue
+        with loop:
+            if progress is not None:
+                if loop._effective_n_jobs() > 1:
+                    warnings.warn('progress does not work well with parallel experiments')
+                n = self.run_count() if self._is_flat else None
+                iter = progress(iter, total=n)
 
-            ds, cand_f, ds_attrs = dsrec
-            if cand_f is None:
-                cand_f = self.candidate_generator
-            train, test = ds
-            train = train_load(train)
-            test = test_load(test)
+            iter = enumerate(iter)
 
-            ds_name = ds_attrs.get('DataSet', None)
-            ds_part = ds_attrs.get('Partition', None)
-            cand = cand_f(train)
+            oc = self.combine_output
+            try:
+                collect = False
+                if loop._effective_n_jobs() > 1:
+                    # will run in parallel
+                    collect = self.combine_output
+                    self.combine_output = False
 
-            _logger.info('starting run %d: %s on %s:%s', run_id, arec.algorithm,
-                         ds_name, ds_part)
-            run = self._run_algo(run_id, arec, (train, test, ds_attrs, cand))
-            _logger.info('finished run %d: %s on %s:%s', run_id, arec.algorithm,
-                         ds_name, ds_part)
-            run_data.append(run)
-            self._write_run(run, run_data)
+                runs = loop(delayed(self._run_job)(i, dsr, ar)
+                            for (i, (dsr, ar)) in iter
+                            if runs is None or i+1 in runs)
+
+                if collect:
+                    _logger.info('collecting output from parallel runs')
+                    self.collect_results(len(runs), write_runs=False, delete=True)
+                    runs.to_csv(self.run_csv, index=False)
+                    runs.to_parquet(self.run_file)
+
+            finally:
+                self.combine_output = oc
+
+    def _run_data(self, i, dsrec, arec):
+        run_id = i + 1
+
+        ds, cand_f, ds_attrs = dsrec
+        if cand_f is None:
+            cand_f = self.candidate_generator
+        train, test = ds
+        train = self._read_data(train)
+        test = self._read_data(test)
+
+        ds_name = ds_attrs.get('DataSet', None)
+        ds_part = ds_attrs.get('Partition', None)
+        cand = cand_f(train)
+
+        _logger.info('starting run %d: %s on %s:%s', run_id, arec.algorithm,
+                     ds_name, ds_part)
+        run = self._run_algo(run_id, arec, (train, test, ds_attrs, cand))
+        _logger.info('finished run %d: %s on %s:%s', run_id, arec.algorithm,
+                     ds_name, ds_part)
+        return run
 
     def _run_algo(self, run_id, arec, data):
         train, test, dsp_attrs, cand = data
@@ -299,7 +380,7 @@ class MultiEval:
 
         watch = util.Stopwatch()
         _logger.info('generating %d predictions for %s', len(test), algo)
-        preds = predict(algo, test, nprocs=self.nprocs)
+        preds = predict(algo, test, nprocs=self.predict_jobs)
         watch.stop()
         _logger.info('generated predictions in %s', watch)
         preds['RunId'] = rid
@@ -318,7 +399,7 @@ class MultiEval:
         users = test.user.unique()
         _logger.info('generating recommendations for %d users for %s', len(users), algo)
         recs = recommend(algo, users, nrecs, candidates,
-                         nprocs=self.nprocs)
+                         nprocs=self.recommend_jobs)
         watch.stop()
         _logger.info('generated recommendations in %s', watch)
         recs['RunId'] = rid
@@ -349,7 +430,7 @@ class MultiEval:
             _logger.info('run %d: writing results to %s', run_id, out)
             df.to_parquet(out)
 
-    def collect_results(self):
+    def collect_results(self, n=None, *, write_runs=True, delete=False):
         """
         Collect the results from non-combined runs into combined output files.
         """
@@ -357,27 +438,32 @@ class MultiEval:
         oc = self.combine_output
         try:
             self.combine_output = True
-            n = self.run_count()
-            runs = (self._read_json('run-{}.json', i+1) for i in range(n))
-            runs = pd.DataFrame.from_records(runs)
-            runs.to_parquet(self.run_file)
-            runs.to_csv(self.run_csv, index=False)
+            if n is None:
+                n = self.run_count()
+
+            if write_runs:
+                runs = (self._read_json('run-{}.json', i+1) for i in range(n))
+                runs = pd.DataFrame.from_records(runs)
+                runs.to_parquet(self.run_file)
+                runs.to_csv(self.run_csv, index=False)
 
             for i in range(n):
-                preds = self._read_parquet('predictions-{}.parquet', i+1)
-                self._write_results('predictions', preds, i+1)
-                recs = self._read_parquet('recommendations-{}.parquet', i+1)
-                self._write_results('recommendations', recs, i+1)
+                pred_f = self.workdir / 'predictions-{}.parquet'.format(i+1)
+                if pred_f.exists():
+                    preds = pd.read_parquet(pred_f)
+                    self._write_results('predictions', preds, i+1)
+                    if delete:
+                        pred_f.unlink()
+
+                rec_f = self.workdir / 'recommendations-{}.parquet'.format(i+1)
+                if rec_f.exists():
+                    recs = pd.read_parqet(rec_f)
+                    self._write_results('recommendations', recs, i+1)
+                    if delete:
+                        rec_f.unlink()
+
         finally:
             self.combine_output = oc
-
-    def _read_parquet(self, name, *args):
-        fn = self.workdir / name.format(*args)
-        if not fn.exists():
-            _logger.warning('file %s does not exist', fn)
-            return None
-
-        return pd.read_parquet(fn)
 
     def _read_json(self, name, *args):
         fn = self.workdir / name.format(*args)

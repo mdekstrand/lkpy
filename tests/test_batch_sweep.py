@@ -19,7 +19,7 @@ from pytest import mark
 def test_sweep_bias(tmp_path, ncpus):
     tmp_path = norm_path(tmp_path)
     work = pathlib.Path(tmp_path)
-    sweep = batch.MultiEval(tmp_path, nprocs=ncpus)
+    sweep = batch.MultiEval(tmp_path, n_jobs=ncpus)
 
     ratings = ml_pandas.renamed.ratings
     folds = xf.partition_users(ratings, 5, xf.SampleN(5))
