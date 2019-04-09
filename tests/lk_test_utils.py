@@ -14,7 +14,7 @@ import pytest
 
 _log = logging.getLogger('lktu')
 
-ml_dir = os.path.join(os.path.dirname(__file__), '../ml-latest-small')
+ml_dir = pathlib.Path(__file__).parent.parent / 'ml-latest-small'
 
 
 class Renamer:

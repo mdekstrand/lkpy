@@ -34,7 +34,7 @@ jobs:
 
   - script: |
       source activate build
-      conda build --output-folder $(Build.ArtifactStagingDirectory) conda
+      conda build --output-folder $(Build.ArtifactStagingDirectory) -c mdekstrand conda
     displayName: Build Conda packages
 
   - task: PublishBuildArtifacts@1
@@ -55,7 +55,7 @@ jobs:
 
   - script: |
       call activate build
-      conda build --output-folder $(Build.ArtifactStagingDirectory) conda
+      conda build --output-folder $(Build.ArtifactStagingDirectory) -c mdekstrand conda
     displayName: Build Conda packages
 
   - task: PublishBuildArtifacts@1
@@ -71,7 +71,7 @@ jobs:
   - bash: echo "##vso[task.prependpath]$CONDA/bin"
     displayName: Add conda to PATH
 
-  - script: conda create -n build -qy python=3.7 conda-build anaconda-client
+  - script: conda create -n build -qy python=3.7 conda-build -c mdekstrand anaconda-client
     displayName: Create Conda env
 
   - script: |

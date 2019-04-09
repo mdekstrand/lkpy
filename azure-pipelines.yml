@@ -3,10 +3,13 @@ variables:
     python=$(python.version)
     pandas numpy scipy fastparquet python-snappy numba cffi pyarrow joblib
     invoke coverage pytest pytest-cov pytest-doctestplus cython dask distributed
+    implicit hpfrec feather-format
+  nonstandard.deps: >
+    implicit hpfrec feather-format
   pip.deps: >
     invoke pytest coverage pytest-cov pytest-doctestplus
     pandas scipy pyarrow numpy joblib
-    numba cython cffi
+    numba cython cffi feather-format
 
 jobs:
 

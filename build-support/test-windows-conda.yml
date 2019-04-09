@@ -18,8 +18,7 @@ jobs:
     displayName: Update Conda
   
   - script: |
-      conda create -n lkpy -qy $(conda.deps)
-      conda install -n lkpy -qy -c mdekstrand implicit hpfrec
+      conda create -n lkpy -qy -c mdekstrand $(conda.deps)
     displayName: Create Conda environment
 
   - script: |

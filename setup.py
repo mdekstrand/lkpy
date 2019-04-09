@@ -31,7 +31,8 @@ setup(
         'numba >= 0.38',
         'pyarrow',
         'cffi',
-        'joblib'
+        'joblib',
+        'feather-format'
     ],
     tests_require=[
         'pytest >= 3.9',

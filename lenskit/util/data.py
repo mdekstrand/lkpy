@@ -28,7 +28,9 @@ def read_df_detect(path):
         File has suffix ``.csv``, read with :py:func:`pandas.read_csv`.
     Parquet
         File has suffix ``.parquet``, ``.parq``, or ``.pq``, read with
-        :py:func:`pandas.read_parquet`.
+        :func:`pandas.read_parquet`.
+    Feather
+        File has suffix ``.feather`` or ``.fth``, read with :func:`pandas.read_feather`,
     """
     if not isinstance(path, pathlib.Path):
         path = pathlib.Path(path)
@@ -37,6 +39,8 @@ def read_df_detect(path):
         return pd.read_csv(path)
     elif path.suffix in ('.parquet', '.parq', '.pq'):
         return pd.read_parquet(path)
+    elif path.suffix in ('.feather', '.fth'):
+        return pd.read_feather(path)
 
 
 def write_parquet(path, frame, append=False):

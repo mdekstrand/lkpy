@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from lenskit import util as lku
+import lk_test_utils as lktu
 
 
 def test_stopwatch_instant():
@@ -181,6 +182,35 @@ def test_fspath():
     path = pathlib.Path('lenskit')
     fn = lku.fspath(path)
     assert fn == 'lenskit'
+
+
+def test_read_detect_csv():
+    csv_file = lktu.ml_dir / 'ratings.csv'
+    ratings = lku.read_df_detect(csv_file)
+    assert all(ratings.columns == ['userId', 'movieId', 'rating', 'timestamp'])
+    assert len(ratings) > 100000
+
+
+def test_read_detect_parquet(tmp_path):
+    csv_file = lktu.ml_dir / 'ratings.csv'
+    pq_file = tmp_path / 'ratings.pq'
+    ratings = pd.read_csv(csv_file)
+    ratings.to_parquet(pq_file)
+
+    pqr = lku.read_df_detect(pq_file)
+    assert len(pqr) == len(ratings)
+    assert all(pqr.columns == ratings.columns)
+
+
+def test_read_detect_feather(tmp_path):
+    csv_file = lktu.ml_dir / 'ratings.csv'
+    fth_file = tmp_path / 'ratings.feather'
+    ratings = pd.read_csv(csv_file)
+    ratings.to_feather(fth_file)
+
+    pqr = lku.read_df_detect(fth_file)
+    assert len(pqr) == len(ratings)
+    assert all(pqr.columns == ratings.columns)
 
 
 def test_write_parquet(tmp_path):
