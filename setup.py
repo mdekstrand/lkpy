@@ -1,7 +1,7 @@
 import os
 import sys
 from pathlib import Path
-from setuptools import setup
+from setuptools import setup, Extension
 from distutils.cmd import Command
 from distutils import ccompiler, sysconfig
 from distutils.command.build import build
@@ -183,4 +183,5 @@ if __name__ == "__main__":
     setup(cmdclass={
         'build_helper': BuildHelperCommand,
         'dep_info': DepInfo
-    })
+    }, ext_modules=[Extension('lenskit.algorithms._als_backend',
+                              ['lenskit/algorithms/_als_backend.pyx'])])

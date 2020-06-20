@@ -9,6 +9,7 @@ from .mf_common import BiasMFPredictor, MFPredictor
 from ..matrix import sparse_ratings
 from .. import util
 from ..math.solve import _dposv
+from . import _als_backend as _backend
 
 _logger = logging.getLogger(__name__)
 
@@ -16,75 +17,6 @@ PartialModel = namedtuple('PartialModel', [
     'users', 'items',
     'user_matrix', 'item_matrix'
 ])
-
-
-@njit
-def _inplace_axpy(a, x, y):
-    for i in range(len(x)):
-        y[i] += a * x[i]
-
-
-@njit
-def _rr_solve(X, xis, y, w, reg, epochs):
-    """
-    RR1 coordinate descent solver.
-
-    Args:
-        X(ndarray): The feature matrix.
-        xis(ndarray): Row numbers in ``X`` that are rated.
-        y(ndarray): Rating values corresponding to ``xis``.
-        w(ndarray): Input/output vector to solve.
-    """
-
-    nd = len(w)
-    Xt = X.T[:, xis]
-    resid = w @ Xt
-    resid *= -1.0
-    resid += y
-
-    for e in range(epochs):
-        for k in range(nd):
-            xk = Xt[k, :]
-            num = np.dot(xk, resid) - reg * w[k]
-            denom = np.dot(xk, xk) + reg
-            dw = num / denom
-            w[k] += dw
-            _inplace_axpy(-dw, xk, resid)
-
-
-@njit(parallel=True, nogil=True)
-def _train_matrix_cd(mat, this: np.ndarray, other: np.ndarray, reg: float):
-    """
-    One half of an explicit ALS training round using coordinate descent.
-
-    Args:
-        mat: the :math:`m \\times n` matrix of ratings
-        this: the :math:`m \\times k` matrix to train
-        other: the :math:`n \\times k` matrix of sample features
-        reg: the regularization term
-    """
-    nr = mat.nrows
-    nf = other.shape[1]
-    assert mat.ncols == other.shape[0]
-    assert mat.nrows == this.shape[0]
-    assert this.shape[1] == nf
-
-    frob = 0.0
-
-    for i in prange(nr):
-        cols = mat.row_cs(i)
-        if len(cols) == 0:
-            continue
-
-        vals = mat.row_vs(i)
-
-        w = this[i, :].copy()
-        _rr_solve(other, cols, vals, w, reg * len(cols), 2)
-        delta = this[i, :] - w
-        frob += np.dot(delta, delta)
-        this[i, :] = w
-
-    return np.sqrt(frob)
 
 
 @njit(parallel=True, nogil=True)
@@ -445,7 +377,7 @@ class BiasedMF(BiasMFPredictor):
         assert ictx.ncols == n_users
 
         if self.method == 'cd':
-            train = _train_matrix_cd
+            train = _backend.train_matrix_cd
         elif self.method == 'lu':
             train = _train_matrix_lu
         else:
