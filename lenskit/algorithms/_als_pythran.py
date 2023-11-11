@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def _inplace_axpy(a, x, y):
     for i in range(len(x)):
         y[i] += a * x[i]
@@ -29,8 +28,8 @@ def _cg_solve(OtOr, X, y, w, epochs):
 
     iM = np.reciprocal(Ad)
 
-    # compute residuals
-    b = X.T @ (y + 1.0)
+    # compute residuals\
+    b = X.T @ (y + 1)
     r = _cg_a_mult(OtOr, X, y, w)
     r *= -1
     r += b
@@ -51,6 +50,7 @@ def _cg_solve(OtOr, X, y, w, epochs):
         p = z + bet * p
 
 
+# pythran export _implicit_otor(float64[][], float64)
 def _implicit_otor(other, reg):
     nf = other.shape[1]
     regmat = np.identity(nf)
@@ -61,6 +61,7 @@ def _implicit_otor(other, reg):
     return OtO
 
 
+# pythran export train_implicit_cg(int32[:], float64[:], float64[:], float64[:,:], float64[:,:], float64)
 def train_implicit_cg(rps, cis, vs, this: np.ndarray, other: np.ndarray, reg: float):
     "One half of an implicit ALS training round with conjugate gradient."
     nr = len(rps) - 1
@@ -86,14 +87,10 @@ def train_implicit_cg(rps, cis, vs, this: np.ndarray, other: np.ndarray, reg: fl
         _cg_solve(OtOr, M, rates, w, 3)
 
         # update stats
-        delta = this[i, :] - w
-        frob += np.dot(delta, delta)
+        # delta = this[i, :] - w
+        # frob += np.dot(delta, delta)
 
         # put back the result
         this[i, :] = w
 
     return np.sqrt(frob)
-
-
-# mat, this: np.ndarray, other: np.ndarray, reg: float
-# pythran export train_implicit_cg(int64[:], float64[:], float64[:], float64[:,:], float64[:,:], float64)
