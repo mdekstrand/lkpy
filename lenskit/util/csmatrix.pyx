@@ -2,11 +2,11 @@
 
 cdef class CSMatrix:
     cdef readonly int nrows, ncols, nnz
-    cdef readonly int[:] rowptr
-    cdef readonly int[:] colind
-    cdef readonly double[:] values
+    cdef readonly int[::1] rowptr
+    cdef readonly int[::1] colind
+    cdef readonly double[::1] values
 
-    def __cinit__(self, int nr, int nc, int[:] rps, int[:] cis, double[:] vs):
+    def __cinit__(self, int nr, int nc, int[::1] rps, int[::1] cis, double[::1] vs):
         self.nrows = nr
         self.ncols = nc
         self.rowptr = rps
@@ -20,7 +20,7 @@ cdef class CSMatrix:
 
         return CSMatrix(nr, nc, m.indptr, m.indices, m.data)
 
-    cpdef (int,int) row_ep(self, row):
+    cpdef (int,int) row_extent(self, row):
         if row < 0 or row >= self.nrows:
             raise IndexError(f"invalid row {row} for {self.nrows}x{self.ncols} matrix")
 
