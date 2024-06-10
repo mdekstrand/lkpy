@@ -101,4 +101,5 @@ def wire_recommender():
     # fit the model
     pipe.fit(ratings=...)
     # apply the model, providing the final stage & the user input
-    pipe.apply(rank, user=34128)
+    recs = pipe.apply(rank, user=34128)
+    # recs is now a series, you can check with hover!
