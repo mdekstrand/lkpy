@@ -11,6 +11,7 @@ Test utilities for LKPY tests.
 import os
 import os.path
 from contextlib import contextmanager
+from typing import Generator
 
 import numpy as np
 import pandas as pd
@@ -33,12 +34,13 @@ from lenskit.math.sparse import torch_sparse_from_scipy
 
 ml_test_dir = here("data/ml-latest-small")
 ml_100k_zip = here("data/ml-100k.zip")
+ml_20m_zip = here("data/ml-20m.zip")
 
 ml_test: Dataset = LazyDataset(lambda: load_movielens(ml_test_dir))
 
 
 @pytest.fixture(scope="session")
-def ml_ratings():
+def ml_ratings() -> Generator[pd.DataFrame, None, None]:
     """
     Fixture to load the test MovieLens ratings as a data frame. To use this,
     just include it as a parameter in your test::
@@ -53,7 +55,7 @@ def ml_ratings():
 
 
 @pytest.fixture(scope="module")
-def ml_ds(ml_ratings: pd.DataFrame):
+def ml_ds(ml_ratings: pd.DataFrame) -> Generator[Dataset, None, None]:
     """
     Fixture to load the MovieLens test dataset.  To use this, just include it as
     a parameter in your test::
@@ -68,7 +70,7 @@ def ml_ds(ml_ratings: pd.DataFrame):
 
 
 @pytest.fixture
-def ml_100k():
+def ml_100k() -> Generator[pd.DataFrame, None, None]:
     """
     Fixture to load the MovieLens 100K dataset (currently as a data frame).  It skips
     the test if the ML100K data is not available.
@@ -76,6 +78,17 @@ def ml_100k():
     if not ml_100k_zip.exists():
         pytest.skip("ML100K data not available")
     yield load_movielens_df(ml_100k_zip)
+
+
+@pytest.fixture(scope="session")
+def ml_20m() -> Generator[Dataset, None, None]:
+    """
+    Fixture to load the MovieLens 20M dataset.  It skips the test if the 20M
+    data is not available.
+    """
+    if not ml_20m_zip.exists():
+        pytest.skip("ML20M data not available")
+    yield load_movielens(ml_20m_zip)
 
 
 @pytest.fixture(scope="session")
