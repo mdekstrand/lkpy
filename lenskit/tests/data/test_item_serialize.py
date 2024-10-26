@@ -30,10 +30,22 @@ def test_il_pickle(test_users, benchmark):
 
 
 @mark.benchmark(max_time=10)
+def test_pickle_df(test_users, benchmark):
+    dfs = [il.to_df(numbers=False) for il in test_users.values()]
+
+    def serialize():
+        for df in dfs:
+            bs = pickle.dumps(df, pickle.HIGHEST_PROTOCOL)
+            assert len(bs) > 0
+
+    benchmark(serialize)
+
+
+@mark.benchmark(max_time=10)
 def test_il_pickle_df(test_users, benchmark):
     def serialize():
         for items in test_users.values():
-            df = items.to_df()
+            df = items.to_df(numbers=False)
             bs = pickle.dumps(df, pickle.HIGHEST_PROTOCOL)
             assert len(bs) > 0
 
@@ -44,8 +56,23 @@ def test_il_pickle_df(test_users, benchmark):
 def test_il_df_tbl(test_users, benchmark):
     def serialize():
         for items in test_users.values():
-            df = items.to_df()
+            df = items.to_df(numbers=False)
             tbl = pa.Table.from_pandas(df)
+            stream = pa.BufferOutputStream()
+            write = pa.ipc.new_stream(stream, tbl.schema)
+            write.write_table(tbl)
+            write.close()
+            buf = stream.getvalue()
+            assert len(buf) > 0
+
+    benchmark(serialize)
+
+
+@mark.benchmark(max_time=10)
+def test_il_tbl(test_users, benchmark):
+    def serialize():
+        for items in test_users.values():
+            tbl = items.to_arrow(numbers=False)
             stream = pa.BufferOutputStream()
             write = pa.ipc.new_stream(stream, tbl.schema)
             write.write_table(tbl)

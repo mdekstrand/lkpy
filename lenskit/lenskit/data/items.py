@@ -14,6 +14,7 @@ from typing import overload
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import torch
 from numpy.typing import ArrayLike, NDArray
 from typing_extensions import (
@@ -428,9 +429,9 @@ class ItemList:
         * all other defined fields, using their field names
         """
         cols = {}
-        if ids and self._ids is not None or self._vocab is not None:
+        if ids and (self._ids is not None or self._vocab is not None):
             cols["item_id"] = self.ids()
-        if numbers and self._numbers is not None or self._vocab is not None:
+        if numbers and (self._numbers is not None or self._vocab is not None):
             cols["item_num"] = self.numbers()
         # we need to have numbers or ids, or it makes no sense
         if "item_id" not in cols and "item_num" not in cols:
@@ -448,6 +449,40 @@ class ItemList:
         # add remaining fields
         cols.update((k, v.numpy()) for (k, v) in self._fields.items() if k != "score")
         return pd.DataFrame(cols)
+
+    def to_arrow(self, *, ids: bool = True, numbers: bool = True) -> pa.Table:
+        arrays = []
+        names = []
+        if ids and (self._ids is not None or self._vocab is not None):
+            arrays.append(self.ids())
+            names.append("item_id")
+        if numbers and (self._numbers is not None or self._vocab is not None):
+            arrays.append(self.numbers())
+            names.append("item_num")
+        # we need to have numbers or ids, or it makes no sense
+        if "item_id" not in names and "item_num" not in names:
+            if ids and not numbers:
+                raise RuntimeError("item list has no vocabulary, cannot compute IDs")
+            elif numbers and not ids:
+                raise RuntimeError("item list has no vocabulary, cannot compute numbers")
+            else:
+                raise RuntimeError("cannot create item data frame without identifiers or numbers")
+
+        if "score" in self._fields:
+            arrays.append(self.scores())
+            names.append("score")
+        if self.ordered:
+            arrays.append(self.ranks())
+            names.append("rank")
+        # add remaining fields
+        for k, v in self._fields.items():
+            if k == "score":
+                continue
+
+            arrays.append(v.numpy())
+            names.append(k)
+
+        return pa.Table.from_arrays(arrays, names)
 
     def __len__(self):
         return self._len
