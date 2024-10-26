@@ -4,19 +4,23 @@ Item list serialization tests.
 
 import pickle
 
+import numpy as np
 import pyarrow as pa
 
 from pytest import fixture, mark
 
+from lenskit.data import Dataset
 from lenskit.splitting import LastN, sample_users
 from lenskit.util.test import ml_20m
 
 
 @fixture(scope="session")
-def test_users(ml_20m):
-    split = sample_users(ml_20m, 5000, LastN(10))
+def test_users(ml_20m: Dataset):
+    u_df = ml_20m.user_stats()
+    u_df = u_df[u_df["item_count"] >= 50]
+    users = np.random.choice(u_df.index.values, 5000)
 
-    yield split.test
+    yield {u: ml_20m.user_row(u) for u in users}
 
 
 @mark.benchmark(max_time=10)
@@ -24,6 +28,16 @@ def test_il_pickle(test_users, benchmark):
     def serialize():
         for items in test_users.values():
             bs = pickle.dumps(items, pickle.HIGHEST_PROTOCOL)
+            assert len(bs) > 0
+
+    benchmark(serialize)
+
+
+@mark.benchmark(max_time=10)
+def test_il_pickle_dft(test_users, benchmark):
+    def serialize():
+        for items in test_users.values():
+            bs = pickle.dumps(items)
             assert len(bs) > 0
 
     benchmark(serialize)
