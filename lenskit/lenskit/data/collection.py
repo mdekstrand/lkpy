@@ -40,12 +40,23 @@ class ItemListCollection:
     _key_schema: KeySchema
     _data: dict[InternalKey, ItemList]
 
-    def __init__(self, schema: KeySchema = UserIDSchema):
+    def __init__(
+        self,
+        schema: KeySchema = UserIDSchema,
+    ):
         """
         Construct a collection with a specified schema.
         """
         self._key_schema = schema
         self._data = {}
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[InternalKey | Hashable, ItemList],
+        schema: KeySchema = UserIDSchema,
+    ):
+        pass
 
     def _make_key(self, fields: ListKey, *, extra: Literal["ignore", "error"]) -> InternalKey:
         x = tuple(fields[k] for k in self._key_schema.keys())
