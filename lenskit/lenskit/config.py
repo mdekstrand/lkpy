@@ -4,12 +4,16 @@ LensKit configuration support.
 
 import os
 import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Sequence
 
 from lenskit.diagnostics import ConfigWarning
 
+_active_device: ContextVar[str | None] = ContextVar("lenskit-device", default=None)
 
-def default_torch_device(allowed: Sequence[str] | None = None) -> str:
+
+def torch_device(allowed: Sequence[str] | None = None) -> str:
     """
     Get the default device for PyTorch algorithms.  This is used by algorithms
     that support CUDA or other devices to query whether they are enabled.  See
@@ -25,6 +29,10 @@ def default_torch_device(allowed: Sequence[str] | None = None) -> str:
     """
     import torch
 
+    dev = _active_device.get()
+    if dev:
+        return dev
+
     env = os.environ.get("LK_DEVICE", None)
     if env is not None:
         if env not in ["cpu", "cuda"]:
@@ -37,3 +45,17 @@ def default_torch_device(allowed: Sequence[str] | None = None) -> str:
         return "cuda"
     else:
         return "cpu"
+
+
+@contextmanager
+def active_device(device):
+    """
+    Set a Torch device as the active device to be returned by
+    :func:`torch_device`.
+    """
+    old = _active_device.get()
+    try:
+        _active_device.set(device)
+        yield
+    finally:
+        _active_device.set(old)
