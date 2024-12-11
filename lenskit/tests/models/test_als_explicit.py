@@ -15,6 +15,7 @@ from pytest import approx, mark
 
 import lenskit.util.test as lktu
 from lenskit.als import BiasedMF
+from lenskit.config import active_device
 from lenskit.data import Dataset, ItemList, RecQuery, from_interactions_df, load_movielens_df
 from lenskit.metrics import quick_measure_model
 from lenskit.util.test import ml_ds  # noqa: F401
@@ -201,9 +202,10 @@ def test_als_predict_no_user_features_basic(rng: np.random.Generator, ml_ds: Dat
 
 @lktu.wantjit
 @mark.slow
-def test_als_train_large(ml_ratings, ml_ds: Dataset):
+def test_als_train_large(torch_device, ml_ratings, ml_ds: Dataset):
     algo = BiasedMF(20, epochs=10)
-    algo.train(ml_ds)
+    with active_device(torch_device):
+        algo.train(ml_ds)
 
     assert algo.bias_ is not None
     assert algo.users_ is not None

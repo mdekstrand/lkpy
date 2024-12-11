@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 
 import numpy as np
+import structlog
 import torch
 from typing_extensions import Iterator, NamedTuple, Self, override
 
 from lenskit import util
+from lenskit.config import torch_device
 from lenskit.data import Dataset, ItemList, QueryInput, RecQuery, Vocabulary
 from lenskit.data.types import UITuple
 from lenskit.logging import item_progress
@@ -29,6 +30,7 @@ class TrainContext(NamedTuple):
     """
 
     label: str
+    device: torch.device
     matrix: torch.Tensor
     left: torch.Tensor
     right: torch.Tensor
@@ -40,14 +42,22 @@ class TrainContext(NamedTuple):
 
     @classmethod
     def create(
-        cls, label: str, matrix: torch.Tensor, left: torch.Tensor, right: torch.Tensor, reg: float
+        cls,
+        label: str,
+        device: torch.device | str,
+        matrix: torch.Tensor,
+        left: torch.Tensor,
+        right: torch.Tensor,
+        reg: float,
     ) -> TrainContext:
         nrows, ncols = matrix.shape
         lnr, embed_size = left.shape
         assert lnr == nrows
         assert right.shape == (ncols, embed_size)
         regI = torch.eye(embed_size, dtype=left.dtype, device=left.device) * reg
-        return TrainContext(label, matrix, left, right, reg, nrows, ncols, embed_size, regI)
+        return TrainContext(
+            label, torch.device(device), matrix, left, right, reg, nrows, ncols, embed_size, regI
+        )
 
 
 class TrainingData(NamedTuple):
@@ -79,7 +89,7 @@ class TrainingData(NamedTuple):
         transposed = ratings.transpose(0, 1).to_sparse_csr()
         return cls(users, items, ratings, transposed)
 
-    def to(self, device):
+    def to(self, device: str) -> Self:
         """
         Move the training data to another device.
         """
@@ -104,7 +114,7 @@ class ALSBase(ABC, Component, Trainable):
 
     @property
     @abstractmethod
-    def logger(self) -> logging.Logger:  # pragma: no cover
+    def logger(self) -> structlog.stdlib.BoundLogger:  # pragma: no cover
         """
         Overridden in implementation to provide the logger.
         """
@@ -167,11 +177,16 @@ class ALSBase(ABC, Component, Trainable):
         if timer is None:
             timer = util.Stopwatch()
 
+        device = torch_device()
+        log = self.logger.bind(device=device, dim=self.features)
+
         train = self.prepare_data(data)
         self.users_ = train.users
         self.items_ = train.items
+        log = log.bind(users=len(self.users_), items=len(self.items_))
 
-        self.initialize_params(train)
+        train = train.to(device)
+        self.initialize_params(train, device)
 
         if isinstance(self.reg, tuple):
             ureg, ireg = self.reg
@@ -181,15 +196,13 @@ class ALSBase(ABC, Component, Trainable):
         assert self.user_features_ is not None
         assert self.item_features_ is not None
         u_ctx = TrainContext.create(
-            "user", train.ui_rates, self.user_features_, self.item_features_, ureg
+            "user", device, train.ui_rates, self.user_features_, self.item_features_, ureg
         )
         i_ctx = TrainContext.create(
-            "item", train.iu_rates, self.item_features_, self.user_features_, ireg
+            "item", device, train.iu_rates, self.item_features_, self.user_features_, ireg
         )
 
-        self.logger.info(
-            "[%s] training biased MF model with ALS for %d features", timer, self.features
-        )
+        log.info("beginning model training")
         start = timer.elapsed()
 
         with item_progress("Training ALS", self.epochs) as epb:
@@ -197,13 +210,18 @@ class ALSBase(ABC, Component, Trainable):
                 epoch = epoch + 1
 
                 du = self.als_half_epoch(epoch, u_ctx)
-                self.logger.debug("[%s] finished user epoch %d", timer, epoch)
+                log.debug("finished user epoch", epoch=epoch)
 
                 di = self.als_half_epoch(epoch, i_ctx)
-                self.logger.debug("[%s] finished item epoch %d", timer, epoch)
+                log.debug("finished item epoch", epoch=epoch)
 
-                self.logger.info(
-                    "[%s] finished epoch %d (|ΔP|=%.3f, |ΔQ|=%.3f)", timer, epoch, du, di
+                log.info(
+                    "[%s] finished epoch %d (|ΔP|=%.3f, |ΔQ|=%.3f)",
+                    timer,
+                    epoch,
+                    du,
+                    di,
+                    epoch=epoch,
                 )
                 epb.update()
                 yield self
@@ -234,17 +252,17 @@ class ALSBase(ABC, Component, Trainable):
         """
         ...
 
-    def initialize_params(self, data: TrainingData):
+    def initialize_params(self, data: TrainingData, device: str):
         """
         Initialize the model parameters at the beginning of training.
         """
         rng = random_generator(self.rng)
         self.logger.debug("initializing item matrix")
-        self.item_features_ = self.initial_params(data.n_items, self.features, rng)
+        self.item_features_ = self.initial_params(data.n_items, self.features, rng).to(device)
         self.logger.debug("|Q|: %f", torch.norm(self.item_features_, "fro"))
 
         self.logger.debug("initializing user matrix")
-        self.user_features_ = self.initial_params(data.n_users, self.features, rng)
+        self.user_features_ = self.initial_params(data.n_users, self.features, rng).to(device)
         self.logger.debug("|P|: %f", torch.norm(self.user_features_, "fro"))
 
     @abstractmethod
@@ -287,7 +305,7 @@ class ALSBase(ABC, Component, Trainable):
         i_feats = self.item_features_[item_nums[item_mask], :]
 
         scores = torch.full((len(items),), np.nan, dtype=torch.float64)
-        scores[item_mask] = i_feats @ u_feat
+        scores[item_mask] = (i_feats @ u_feat).to(scores.device)
 
         results = ItemList(items, scores=scores)
         return self.finalize_scores(user_num, results, u_offset)

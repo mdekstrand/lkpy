@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-import logging
 import math
 
 import numpy as np
+import structlog
 import torch
 from typing_extensions import override
 
@@ -21,7 +21,7 @@ from lenskit.types import RNGInput
 
 from ._common import ALSBase, TrainContext, TrainingData
 
-_log = logging.getLogger(__name__)
+_log = structlog.stdlib.get_logger(__name__)
 
 
 class ImplicitMF(ALSBase):
@@ -168,7 +168,7 @@ class ImplicitMF(ALSBase):
 @torch.jit.script
 def _implicit_otor(other: torch.Tensor, reg: float) -> torch.Tensor:
     nf = other.shape[1]
-    regmat = torch.eye(nf)
+    regmat = torch.eye(nf, device=other.device)
     regmat *= reg
     Ot = other.T
     OtO = Ot @ other
@@ -192,6 +192,7 @@ def _train_implicit_row_cholesky(
         The user-feature vector.
     """
     _log.debug("learning new user row with %d items", len(items))
+    ratings = ratings.to(i_embeds.device)
 
     # we can optimize by only considering the nonzero entries of Cu-I
     # this means we only need the corresponding matrix columns
@@ -255,7 +256,7 @@ def _train_implicit_cholesky_fanout(
             (start, end, torch.jit.fork(_train_implicit_cholesky_rows, ctx, OtOr, start, end, pbh))  # type: ignore
         )
 
-    sqerr = torch.tensor(0.0)
+    sqerr = torch.tensor(0.0, device=ctx.device)
     for start, end, r in results:
         M = r.wait()
         diff = (ctx.left[start:end, :] - M).ravel()

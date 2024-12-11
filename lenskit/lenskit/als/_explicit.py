@@ -6,9 +6,8 @@
 
 from __future__ import annotations
 
-import logging
-
 import numpy as np
+import structlog
 import torch
 from typing_extensions import override
 
@@ -22,7 +21,7 @@ from lenskit.types import RNGInput
 
 from ._common import ALSBase, TrainContext, TrainingData
 
-_log = logging.getLogger(__name__)
+_log = structlog.stdlib.get_logger(__name__)
 
 
 class BiasedMF(ALSBase):

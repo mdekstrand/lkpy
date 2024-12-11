@@ -15,6 +15,7 @@ from pytest import approx, mark
 
 import lenskit.util.test as lktu
 from lenskit.als import ImplicitMF
+from lenskit.config import active_device
 from lenskit.data import Dataset, ItemList, RecQuery, from_interactions_df, load_movielens_df
 from lenskit.metrics import quick_measure_model
 from lenskit.pipeline import topn_pipeline
@@ -128,12 +129,12 @@ def test_als_predict_for_new_users_with_new_ratings(rng: np.random.Generator, ml
         nr_info = user_data.to_df()
         ifs = algo.item_features_[user_data.numbers(vocabulary=algo.items_), :]
         fit_uv = algo.user_features_[upos, :]
-        nr_info["fit_recon"] = ifs @ fit_uv
+        nr_info["fit_recon"] = (ifs @ fit_uv).cpu()
         nr_info["fit_sqerr"] = np.square(algo.weight + 1.0 - nr_info["fit_recon"])
 
         _log.debug("user_features from fit:\n%s", fit_uv)
         new_uv, _new_off = algo.new_user_embedding(new_u_id, user_data)
-        nr_info["new_recon"] = ifs @ new_uv
+        nr_info["new_recon"] = (ifs @ new_uv).cpu()
         nr_info["new_sqerr"] = np.square(algo.weight + 1.0 - nr_info["new_recon"])
 
         _log.debug("user features from new:\n%s", new_uv)
@@ -259,19 +260,6 @@ def test_als_predict_no_user_features_basic(ml_ratings: pd.DataFrame, ml_ds: Dat
     assert all(diffs <= 0.1)
 
 
-@lktu.wantjit
-def test_als_train_large(ml_ds: Dataset):
-    algo = ImplicitMF(20, epochs=20, use_ratings=False)
-    algo.train(ml_ds)
-
-    assert algo.users_ is not None
-    assert algo.user_features_ is not None
-    assert len(algo.users_.index) == ml_ds.user_count
-    assert len(algo.items_.index) == ml_ds.item_count
-    assert algo.user_features_.shape == (ml_ds.user_count, 20)
-    assert algo.item_features_.shape == (ml_ds.item_count, 20)
-
-
 def test_als_save_load(tmp_path, ml_ds: Dataset):
     "Test saving and loading ALS models, and regularized training."
     algo = ImplicitMF(5, epochs=5, reg=(2, 1), use_ratings=False)
@@ -292,12 +280,14 @@ def test_als_save_load(tmp_path, ml_ds: Dataset):
 
 
 @lktu.wantjit
-def test_als_train_large_noratings(ml_ds: Dataset):
+def test_als_train_full(torch_device, ml_ds: Dataset):
     algo = ImplicitMF(20, epochs=20)
-    algo.train(ml_ds)
+    with active_device(torch_device):
+        algo.train(ml_ds)
 
     assert algo.users_ is not None
     assert algo.user_features_ is not None
+    assert algo.user_features_.device.type == torch_device
     assert len(algo.users_.index) == ml_ds.user_count
     assert len(algo.items_.index) == ml_ds.item_count
     assert algo.user_features_.shape == (ml_ds.user_count, 20)
@@ -305,7 +295,7 @@ def test_als_train_large_noratings(ml_ds: Dataset):
 
 
 @lktu.wantjit
-def test_als_train_large_ratings(ml_ds):
+def test_als_train_full_ratings(ml_ds):
     algo = ImplicitMF(20, epochs=20, use_ratings=True)
     algo.train(ml_ds)
 
