@@ -90,4 +90,5 @@ def pytest_collection_modifyitems(items):
 
 
 settings.register_profile("default", deadline=1000)
+settings.register_profile("burnin", deadline=1000, max_examples=2000)
 ensure_parallel_init()
