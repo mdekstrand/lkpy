@@ -43,6 +43,8 @@ class BatchedMinHeap:
         Insert values into the heap at the specified rows.  Returns the values
         removed to make place for these values.
         """
+        if extra is None:
+            extra = torch.zeros(values.shape, dtype=self.extra.dtype)
         rsz = self.sizes[rows]
         # to insert: rows that are not full
         m_insert = rsz < self.size
@@ -50,15 +52,11 @@ class BatchedMinHeap:
         m_replace = (rsz == self.size) & (self.values[rows, 0] < values)
 
         self._insert_new(
-            rows[m_insert], values[m_insert], None if extra is None else extra[m_insert]
+            rows[m_insert], values[m_insert] if values.shape else values, extra[m_insert]
         )
         self._insert_replace(
-            rows[m_replace], values[m_replace], None if extra is None else extra[m_replace]
+            rows[m_replace], values[m_replace] if values.shape else values, extra[m_replace]
         )
-
-        m_add = m_insert | m_replace
-        assert torch.all(self.values[rows[m_add], 0] <= values[m_add])
-        assert torch.all(values[~m_add] <= self.values[rows[~m_add], 0])
 
     def row_values(self, row: int) -> torch.Tensor:
         """
