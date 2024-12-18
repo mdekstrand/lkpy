@@ -14,7 +14,6 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pandas as pd
 import structlog
 import torch
 from scipy.sparse import csr_array
@@ -27,6 +26,7 @@ from lenskit.diagnostics import DataWarning
 from lenskit.math.sparse import normalize_sparse_rows, safe_spmv, torch_sparse_to_scipy
 from lenskit.parallel.config import ensure_parallel_init
 from lenskit.pipeline import Component, Trainable
+from lenskit.util.heap import BatchedMinHeap
 
 _log = structlog.stdlib.get_logger(__name__)
 
@@ -199,7 +199,8 @@ class UserKNNScorer(Component, Trainable):
         ki_mask = iidxs >= 0
         usable_iidxs = iidxs[ki_mask]
 
-        scores = score_items_with_neighbors(
+        scores = torch.full((len(items),), torch.nan)
+        scores[ki_mask] = score_items_with_neighbors(
             log,
             usable_iidxs,
             kn_idxs,
@@ -210,17 +211,14 @@ class UserKNNScorer(Component, Trainable):
             self.feedback == "explicit",
         )
 
-        scores += umean
-
-        results = pd.Series(scores, index=items.ids()[ki_mask.numpy()], name="prediction")
-        results = results.reindex(items.ids())
+        scores[ki_mask] += umean
 
         log.debug(
             "scored %d items in %s",
-            results.notna().sum(),
+            np.isfinite(scores).sum(),
             watch,
         )
-        return ItemList(items, scores=results.values)  # type: ignore
+        return ItemList(items, scores=scores)  # type: ignore
 
     def _get_user_data(self, query: RecQuery) -> Optional[UserRatings]:
         "Get a user's data for user-user CF"
@@ -283,60 +281,63 @@ def score_items_with_neighbors(
     max_nbrs: int,
     min_nbrs: int,
     average: bool,
-) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+) -> torch.Tensor:
     # select a sub-matrix for further manipulation
-    (ni,) = items.shape
-    (nrow, ncol) = ratings.shape
-    # do matrix surgery
+    # ni = len(items)
+    nn = len(nbr_rows)
+    assert len(nbr_sims) == nn
+
     nbr_rates = ratings[nbr_rows.numpy(), :]
     nbr_rates = nbr_rates[:, items.numpy()]
-
-    nbr_t = nbr_rates.transpose().tocsr()
-
-    # count nbrs for each item
-    counts = np.diff(nbr_t.indptr)
-    assert counts.shape == items.shape
+    nr_tensor = torch.sparse_csr_tensor(
+        crow_indices=nbr_rates.indptr,
+        col_indices=nbr_rates.indices,
+        values=nbr_rates.data,
+        size=nbr_rates.shape,
+    )
 
     log.debug(
         "scoring items",
-        max_count=np.max(counts),
         nbr_shape=nbr_rates.shape,
     )
 
-    # fast-path items with small neighborhoods
-    fp_mask = counts <= max_nbrs
-    results = np.full(ni, np.nan)
-    nbr_fp = nbr_rates[:, fp_mask]
-    results[fp_mask] = nbr_fp.T @ nbr_sims
+    return _score_items_internal(nr_tensor, nbr_sims, max_nbrs, min_nbrs, average)
 
+
+@torch.jit.script
+def _score_items_internal(
+    nbr_rates: torch.Tensor,
+    nbr_sims: torch.Tensor,
+    max_nbrs: int,
+    min_nbrs: int,
+    average: bool,
+) -> torch.Tensor:
+    nu, ni = nbr_rates.shape
+    rptr = nbr_rates.crow_indices()
+    coli = nbr_rates.col_indices()
+    vals = nbr_rates.values()
+
+    # scratch space for similarities and ratings
+    heap = BatchedMinHeap(ni, max_nbrs)
+
+    for u in range(nu):
+        s = rptr[u]
+        e = rptr[u + 1]
+
+        sim = nbr_sims[u]
+        u_items = coli[s:e]
+        u_rates = vals[s:e]
+
+        # add this user to the heaps of similarities
+        heap.insert(u_items, sim, u_rates)
+
+    # now we can use these heaps to compute the scores
+    scores = torch.sum(heap.values, dim=1)
     if average:
-        nbr_fp_ones = csr_array((np.ones(nbr_fp.nnz), nbr_fp.indices, nbr_fp.indptr), nbr_fp.shape)
-        tot_sims = nbr_fp_ones.T @ nbr_sims
-        assert np.all(np.isfinite(tot_sims))
-        results[fp_mask] /= tot_sims
+        num = torch.sum(heap.values * heap.extra, dim=1)
+        scores = num / scores
 
-    # clear out too-small neighborhoods
-    results[counts < min_nbrs] = torch.nan
+    # clear out scores with too few neighbors
+    scores[heap.sizes < min_nbrs] = torch.nan
 
-    # deal with too-large items
-    exc_mask = counts > max_nbrs
-    n_bad = np.sum(exc_mask)
-    if n_bad:
-        log.debug("scoring %d slow-path items", n_bad)
-
-    bads = np.argwhere(exc_mask)[:, 0]
-    for badi in bads:
-        s, e = nbr_t.indptr[badi : (badi + 2)]
-
-        bi_users = nbr_t.indices[s:e]
-        bi_rates = torch.from_numpy(nbr_t.data[s:e])
-        bi_sims = nbr_sims[bi_users]
-
-        tk_vs, tk_is = torch.topk(bi_sims, max_nbrs)
-        sum = torch.sum(tk_vs)
-        if average:
-            results[badi] = torch.dot(tk_vs, bi_rates[tk_is]) / sum
-        else:
-            results[badi] = sum
-
-    return results
+    return scores
