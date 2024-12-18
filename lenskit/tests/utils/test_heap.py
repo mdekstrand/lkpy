@@ -10,14 +10,13 @@ from lenskit.util.heap import BatchedMinHeap
 
 
 def test_empty_heap():
-    heap = BatchedMinHeap(10, 5, None)
+    heap = BatchedMinHeap(10, 5)
     assert torch.all(heap.sizes == 0)
     assert torch.all(heap.values == 0.0)
-    assert heap.extra is None
 
 
 def test_add_one():
-    heap = BatchedMinHeap(1, 5, None)
+    heap = BatchedMinHeap(1, 5)
     heap.insert(
         torch.tensor([0], dtype=torch.int32), torch.tensor([3.5], dtype=torch.float32), None
     )
@@ -29,7 +28,7 @@ def test_add_one():
 
 
 def test_add_drop():
-    heap = BatchedMinHeap(1, 2, None)
+    heap = BatchedMinHeap(1, 2)
     heap.insert(
         torch.tensor([0], dtype=torch.int32), torch.tensor([3.5], dtype=torch.float32), None
     )
@@ -53,7 +52,7 @@ def test_add_drop():
 
 
 def test_add_replace():
-    heap = BatchedMinHeap(1, 2, None)
+    heap = BatchedMinHeap(1, 2)
     heap.insert(
         torch.tensor([0], dtype=torch.int32), torch.tensor([3.5], dtype=torch.float32), None
     )
@@ -74,7 +73,7 @@ def test_add_replace():
 
 
 def test_add_replace_several():
-    heap = BatchedMinHeap(1, 5, None)
+    heap = BatchedMinHeap(1, 5)
     for i in range(5):
         heap.insert(
             torch.tensor([0], dtype=torch.int32), torch.tensor([i], dtype=torch.float32), None
@@ -100,7 +99,7 @@ def test_add_replace_weird():
     negatives = 3
     post_zeros = 4
 
-    heap = BatchedMinHeap(1, size, None)
+    heap = BatchedMinHeap(1, size)
     for i in range(leading_zeros):
         heap.insert(
             torch.tensor([0], dtype=torch.int32), torch.tensor([0.0], dtype=torch.float32), None
@@ -133,7 +132,7 @@ def test_add_replace_weird():
     st.lists(st.floats(allow_nan=False, allow_infinity=False, width=32), max_size=1000),
 )
 def test_single_heap(size: int, vals: list[float]):
-    heap = BatchedMinHeap(1, size, None)
+    heap = BatchedMinHeap(1, size)
 
     for i, v in enumerate(vals, 1):
         heap.insert(torch.tensor([0], dtype=torch.int32), torch.tensor([v]), None)
@@ -163,7 +162,7 @@ def test_single_heap(size: int, vals: list[float]):
     st.integers(min_value=1, max_value=100),
 )
 def test_many_heaps(data: st.DataObject, batches: int, size: int, rounds: int):
-    heap = BatchedMinHeap(batches, size, None)
+    heap = BatchedMinHeap(batches, size)
     drawn = [[] for i in range(batches)]
 
     for i in range(rounds):

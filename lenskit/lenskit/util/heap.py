@@ -5,6 +5,14 @@ TorchScript-compatible bulk heap support.
 import torch
 
 
+@torch.jit.script
+def _batch_swap(data: torch.Tensor, rows: torch.Tensor, i1: torch.Tensor, i2: torch.Tensor):
+    saved = data[rows, i1]
+    data[rows, i1] = data[rows, i2]
+    data[rows, i2] = saved
+
+
+@torch.jit.script
 class BatchedMinHeap:
     """
     A batch of min-heaps that can store an additional data item.  This allows
@@ -16,17 +24,14 @@ class BatchedMinHeap:
 
     size: int
     values: torch.Tensor
-    extra: torch.Tensor | None
+    extra: torch.Tensor
     sizes: torch.Tensor
 
-    def __init__(self, heap_count: int, heap_size: int, extra: torch.dtype | None):
+    def __init__(self, heap_count: int, heap_size: int, extra: torch.dtype = torch.float32):
         self.size = heap_size
         self.values = torch.zeros((heap_count, heap_size), dtype=torch.float32)
         self.sizes = torch.zeros((heap_count,), dtype=torch.int32)
-        if extra:
-            self.extra = torch.zeros_like(self.values)
-        else:
-            self.extra = None
+        self.extra = torch.zeros_like(self.values, dtype=extra)
 
     def insert(
         self,
@@ -109,8 +114,7 @@ class BatchedMinHeap:
             # find the rows where the parent is greater than the child
             m_swap = self.values[i_row, i_parent] > self.values[i_row, i_pos]
             _batch_swap(self.values, i_row[m_swap], i_parent[m_swap], i_pos[m_swap])
-            if self.extra is not None:
-                _batch_swap(self.extra, i_row[m_swap], i_parent[m_swap], i_pos[m_swap])
+            _batch_swap(self.extra, i_row[m_swap], i_parent[m_swap], i_pos[m_swap])
             pos = i_parent
             rows = i_row
             pos[~m_swap] = 0
@@ -136,11 +140,6 @@ class BatchedMinHeap:
 
             m_swap = mins != current
             _batch_swap(self.values, rows[m_swap], mins[m_swap], current[m_swap])
+            _batch_swap(self.extra, rows[m_swap], mins[m_swap], current[m_swap])
             current = mins
             finished[~m_swap] = True
-
-
-def _batch_swap(data: torch.Tensor, rows: torch.Tensor, i1: torch.Tensor, i2: torch.Tensor):
-    saved = data[rows, i1]
-    data[rows, i1] = data[rows, i2]
-    data[rows, i2] = saved
