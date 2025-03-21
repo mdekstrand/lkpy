@@ -230,6 +230,27 @@ def test_to_arrow():
     assert np.all(tbl.column("user_id").to_numpy() == [72, 82])
 
 
+def test_pack_to_arrow(rng, ml_ds: Dataset):
+    ilc = ItemListCollection.empty(["user_id"])
+    for user in rng.choice(ml_ds.users.ids(), 500, replace=False):
+        ilc.add(ml_ds.user_row(user), user_id=user)
+
+    ilc2 = ilc.pack()
+
+    assert len(ilc2) == len(ilc)
+    assert set(ilc2.keys()) == set(ilc.keys())
+    for k, t in ilc2:
+        il_orig = ilc.lookup(k)
+        assert il_orig is not None
+        assert np.all(t.ids() == il_orig.ids())
+        assert np.all(ilc2.lookup(k).ids() == t.ids())
+
+    ilcbs = pickle.dumps(ilc2)
+    ilc3 = pickle.loads(ilcbs)
+    assert len(ilc3) == len(ilc2)
+    assert set(ilc3.keys()) == set(ilc.keys())
+
+
 @mark.parametrize("layout", ["native", "flat"])
 def test_save_parquet(ml_ds: Dataset, tmpdir: Path, layout):
     ilc = ItemListCollection.empty(["user_id"])

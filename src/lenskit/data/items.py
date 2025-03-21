@@ -147,6 +147,7 @@ class ItemList:
         | np.floating
         | float
         | None = None,
+        _skip_null_filter: bool = False,
         **fields: NDArray[np.generic] | torch.Tensor | ArrayLike | Literal[False],
     ):
         if isinstance(source, ItemList):
@@ -255,7 +256,7 @@ class ItemList:
             if (
                 name not in ("item_id", "item_num", "score", "rank")
                 and data is not False
-                and not array_is_null(data)
+                and (_skip_null_filter or not array_is_null(data))
             ):
                 self._fields[name] = check_1d(MTArray(data), self._len, label=name)
 
@@ -329,23 +330,30 @@ class ItemList:
         assert isinstance(tbl, pa.StructArray)
         assert isinstance(tbl.type, pa.StructType)
 
-        if hasattr(tbl.type, "names"):
-            names = tbl.type.names  # type: ignore
+        names = getattr(tbl.type, "names", None)
+        if names is None:
+            fields = {tbl.type.field(i).name: i for i in range(tbl.type.num_fields)}
         else:
-            names = [tbl.type.field(i).name for i in range(tbl.type.num_fields)]
+            fields = {name: i for (i, name) in enumerate(names)}
 
-        ids = tbl.field("item_id") if "item_id" in names else None
-        nums = tbl.field("item_num") if "item_num" in names else None
+        ids = None
+        nums = None
+        if (iid_pos := fields.get("item_id", None)) is not None:
+            ids = tbl.field(iid_pos)
+        if (ino_pos := fields.get("item_num", None)) is not None:
+            nums = tbl.field(ino_pos)
+
         if ids is None and nums is None:
             raise TypeError("data table must have at least one of item_id, item_num columns")
 
         to_drop = ["item_id", "item_num"]
 
-        fields = {c: tbl.field(c) for c in names if c not in to_drop}
+        fields = {c: tbl.field(i) for (c, i) in fields.items() if c not in to_drop}
         items = cls(
             item_ids=ids,  # type: ignore
             item_nums=nums,  # type: ignore
             vocabulary=vocabulary,
+            _skip_null_filter=True,
             **fields,  # type: ignore
         )
         assert len(items) == len(tbl), f"built list of {len(items)}, expected {len(tbl)}"

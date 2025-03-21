@@ -187,6 +187,15 @@ class ItemListCollection(Generic[KL], ABC):
         """
         return pa.Table.from_batches(self.record_batches())
 
+    def pack(self) -> ItemListCollection:
+        """
+        Pack this ILC into an immutable item list collection backed by a single
+        Arrow table.
+        """
+        from ._arrow import ArrowILC
+
+        return ArrowILC(self.to_arrow())
+
     def save_parquet(
         self,
         path: PathLike[str],
@@ -240,6 +249,7 @@ class ItemListCollection(Generic[KL], ABC):
         path: PathLike[str] | list[PathLike[str]],
         *,
         layout: Literal["native"] = "native",
+        mutable: bool = True,
     ) -> ItemListCollection: ...
     @overload
     @classmethod
@@ -249,6 +259,7 @@ class ItemListCollection(Generic[KL], ABC):
         key: type[K] | Sequence[Column] | Column,
         *,
         layout: Literal["flat"],
+        mutable: bool = True,
     ) -> ItemListCollection: ...
     @classmethod
     def load_parquet(
@@ -257,6 +268,7 @@ class ItemListCollection(Generic[KL], ABC):
         key: type[K] | Sequence[Column] | Column | None = None,
         *,
         layout: Literal["native", "flat"] = "native",
+        mutable: bool = True,
     ) -> ItemListCollection:
         """
         Load this item list from a Parquet file.
@@ -269,6 +281,7 @@ class ItemListCollection(Generic[KL], ABC):
             layout:
                 The layout to use, either LensKit native layout or a flat tabular layout.
         """
+        from ._arrow import ArrowILC
         from ._list import ListILC
 
         if isinstance(path, list):
@@ -282,14 +295,16 @@ class ItemListCollection(Generic[KL], ABC):
                 raise ValueError("cannot specify key in native format")
 
             table = dataset.read()
-            keys = table.drop("items")
-            lists = table.column("items")
-            ilc = ListILC(keys.schema.names)
-            for i, k in enumerate(keys.to_pylist()):
-                il_data = lists[i].values
-                ilc.add(ItemList.from_arrow(il_data), **k)
 
-            return ilc
+            arrow = ArrowILC(table)
+            if mutable:
+                ilc = ListILC(arrow.key_type)
+                ilc.add_from(arrow)
+
+                return ilc
+            else:
+                return arrow
+
         elif layout == "flat":
             tbl = dataset.read_pandas()
 
