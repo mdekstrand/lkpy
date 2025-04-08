@@ -328,7 +328,7 @@ def _sim_row(
         cols = cols[order]
         vals = vals[order]
 
-    return len(cols), cols, torch.clamp(vals, -1, 1)
+    return len(cols), cols, torch.clamp(vals, -1, 1).to(torch.float32)
 
 
 @torch.jit.script
@@ -338,7 +338,7 @@ def _sim_block(
     "Compute a single block of the similarity matrix"
     bsize = end - start
 
-    counts = torch.zeros(bsize, dtype=torch.int32)
+    counts = torch.zeros(bsize, dtype=torch.int64)
     columns = []
     values = []
 
@@ -349,7 +349,7 @@ def _sim_block(
         values.append(vs)
         pbh_update(pbh, 1)
 
-    return counts, torch.cat(columns), torch.cat(values).to(torch.float32)
+    return counts, torch.cat(columns), torch.cat(values)
 
 
 @torch.jit.script
