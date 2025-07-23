@@ -8,9 +8,9 @@ from pathlib import Path
 
 import click
 
+from lenskit.data import load_movielens
 from lenskit.data.amazon import load_amazon_ratings
 from lenskit.data.collection._list import ListILC
-from lenskit.data.movielens import load_movielens
 from lenskit.logging import get_logger
 
 _log = get_logger(__name__)

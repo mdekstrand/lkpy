@@ -13,7 +13,6 @@ from __future__ import annotations
 from lenskit.diagnostics import FieldError
 
 from .adapt import from_interactions_df
-from .amazon import load_amazon_ratings
 from .attributes import AttributeSet
 from .builder import DatasetBuilder
 from .collection import (
@@ -27,9 +26,10 @@ from .collection import (
 from .dataset import Dataset, EntitySet, MatrixRelationshipSet, RelationshipSet
 from .items import ItemList
 from .matrix import COOStructure, CSRStructure
-from .movielens import load_movielens, load_movielens_df
 from .mtarray import MTArray, MTFloatArray, MTGenericArray, MTIntArray
 from .query import QueryInput, RecQuery
+from .sources.amazon import load_amazon_ratings
+from .sources.movielens import load_movielens, load_movielens_df
 from .types import ID, NPID, FeedbackType
 from .vocab import Vocabulary
 

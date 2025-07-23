@@ -14,6 +14,9 @@ information on how to upgrade your code.
 2025.3.0 (in progress)
 ----------------------
 
+-   Moved ``lenskit.data.movielens`` to :mod:`lenskit.data.sources.movielens`.
+    The old module is preserved as a compatibility source for importing
+    ``load_movielens``, but is deprecated and will be removed.
 -   Replace broken “softmax” sampler with a proper stochastic sampler (:pr:`667`).
 -   :meth:`~lenskit.data.MatrixRelationshipSet.sample_negatives` now accepts
     ``"popular"`` as an alias for ``"popularity"``.

@@ -17,9 +17,8 @@ import pyarrow as pa
 
 from pytest import mark
 
-from lenskit.data import DatasetBuilder
+from lenskit.data import DatasetBuilder, load_movielens_df
 from lenskit.data.adapt import from_interactions_df
-from lenskit.data.movielens import load_movielens_df
 from lenskit.logging import get_logger
 
 pytestmark = mark.skipif("LK_HUGE_TEST" not in os.environ, reason="huge tests disabled")
