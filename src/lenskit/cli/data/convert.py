@@ -8,8 +8,7 @@ from pathlib import Path
 
 import click
 
-from lenskit.data import load_movielens
-from lenskit.data.amazon import load_amazon_ratings
+from lenskit.data import load_amazon_ratings, load_movielens
 from lenskit.data.collection._list import ListILC
 from lenskit.logging import get_logger
 
@@ -19,6 +18,7 @@ _log = get_logger(__name__)
 @click.command("convert")
 @click.option("--movielens", "format", flag_value="movielens", help="Convert MovieLens data.")
 @click.option("--amazon", "format", flag_value="amazon", help="Convert Amazon rating data.")
+@click.option("--steam", "format", flag_value="steam", help="Convert Steam interaction data")
 @click.option(
     "--item-lists", is_flag=True, help="Convert to an ItemListCollection instead of Dataset."
 )
