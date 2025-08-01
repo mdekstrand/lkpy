@@ -15,6 +15,7 @@ use arrow::{
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
 mod index;
+mod pyson;
 mod rc_set;
 mod selection;
 mod sorting;
@@ -36,6 +37,7 @@ pub fn register_data(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     data.add_function(wrap_pyfunction!(sorting::argsort_descending, &data)?)?;
     data.add_function(wrap_pyfunction!(selection::negative_mask, &data)?)?;
     data.add_function(wrap_pyfunction!(hash_array, &data)?)?;
+    data.add_function(wrap_pyfunction!(pyson::pyson_loads, &data)?)?;
 
     Ok(())
 }

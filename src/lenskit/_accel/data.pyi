@@ -1,4 +1,5 @@
 import pyarrow as pa
+from pydantic import JsonValue
 
 from lenskit.data.types import ID
 
@@ -11,6 +12,7 @@ def negative_mask(n: int, indices: pa.Int32Array) -> pa.BooleanArray:
     ...
 
 def hash_array(arr: pa.Array, /) -> str: ...
+def pyon_loads(data: str) -> JsonValue: ...
 
 class IDIndex:
     """
