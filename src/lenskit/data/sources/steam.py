@@ -12,6 +12,7 @@ Support for importing `Steam data`_.
 
 import sys
 from collections.abc import Generator
+from os import fspath
 from pathlib import Path
 from typing import Any
 
@@ -121,7 +122,7 @@ def _read_table(path: Path, schema: pa.Schema | None = None) -> pa.Table:
 
 
 def _decode_chunks(path: Path, schema: pa.Schema | None = None) -> Generator[pa.RecordBatch]:
-    for chunk in chunked(_decode_steam(path), BATCH_SIZE):
+    for chunk in chunked(_accel_data.read_ndpyson(fspath(path)), BATCH_SIZE):
         batch = pa.RecordBatch.from_pylist(chunk, schema)
         if schema is None:
             schema = batch.schema

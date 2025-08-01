@@ -7,7 +7,20 @@
 //! Support for reading invalid JSON that is actually valid Python expression syntax.
 
 use std::any::Any;
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::io::Lines;
+use std::thread;
 
+use log::*;
+
+use flate2::read::MultiGzDecoder;
+use os_pipe::{pipe, PipeReader};
+use pyo3::exceptions::PyIOError;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyStopIteration;
 use pyo3::{
     exceptions::{PyTypeError, PyValueError},
     prelude::*,
@@ -16,6 +29,63 @@ use pyo3::{
 
 use rustpython_ast::{Constant, Expr, ExprDict, ExprList};
 use rustpython_parser::Parse;
+
+#[pyclass]
+pub struct NDPysonReader {
+    lines: Lines<BufReader<PipeReader>>,
+    thread: Option<thread::JoinHandle<io::Result<u64>>>,
+}
+
+#[pymethods]
+impl NDPysonReader {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+    fn __next__<'py>(mut slf: PyRefMut<'_, Self>, py: Python<'py>) -> PyResult<PyObject> {
+        let line = slf.lines.next();
+        if let Some(line) = line {
+            let line = line?;
+            pyson_loads(py, &line)
+        } else {
+            if let Some(thread) = slf.thread.take() {
+                let res = thread.join();
+                match res {
+                    Ok(Ok(n)) => {
+                        debug!("decompressed {} bytes", n);
+                    }
+                    Ok(Err(e)) => return Err(PyIOError::new_err(format!("IO error: {:?}", e))),
+                    Err(e) => {
+                        return Err(PyRuntimeError::new_err(format!(
+                            "failed to join backend thread: {:?}",
+                            e
+                        )))
+                    }
+                }
+            }
+            Err(PyStopIteration::new_err("decoding complete"))
+        }
+    }
+}
+
+#[pyfunction]
+pub fn read_ndpyson(path: &str) -> PyResult<NDPysonReader> {
+    let file = File::open(path)?;
+    let (reader, writer) = pipe()?;
+
+    let thread = thread::spawn(move || {
+        let mut writer = writer;
+        let mut read = MultiGzDecoder::new(file);
+        io::copy(&mut read, &mut writer)
+    });
+
+    let reader = BufReader::new(reader);
+    let lines = reader.lines();
+
+    Ok(NDPysonReader {
+        lines,
+        thread: Some(thread),
+    })
+}
 
 /// Parse a “pyson” object.
 #[pyfunction]
