@@ -134,7 +134,7 @@ def _decode_steam(path: Path) -> Generator[dict[str, Any]]:
     """
     with xopen(path, "rt") as stream:
         for line in stream:
-            yield _accel_data.pyson_loads(line)
+            yield _accel_data.pyon_loads(line)
 
 
 def _preview_file(path: str | Path):
