@@ -19,7 +19,7 @@ use rustpython_parser::Parse;
 
 /// Parse a “pyson” object.
 #[pyfunction]
-pub fn pyson_loads<'py>(py: Python<'py>, text: &str) -> PyResult<PyObject> {
+pub fn pyon_loads<'py>(py: Python<'py>, text: &str) -> PyResult<PyObject> {
     let ast = ExprDict::parse(text, "internal")
         .map_err(|_e| PyErr::new::<PyValueError, _>("Python parse error"))?;
     let obj = realize_dict(py, ast)?;
