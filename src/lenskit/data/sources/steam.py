@@ -114,7 +114,7 @@ def _load_au_steam(interactions: Path, reviews: Path | None) -> Dataset:
 
     _log.debug("loading items")
     ii_flat_chunks = [c.flatten() for c in items.chunks]
-    ii_tbl = pa.table(
+    ii_tbl: pa.Table = pa.table(
         {
             "item_id": pa.chunked_array(c.field("item_id") for c in ii_flat_chunks),
             "item_name": pa.chunked_array(c.field("item_name") for c in ii_flat_chunks),
@@ -131,7 +131,7 @@ def _load_au_steam(interactions: Path, reviews: Path | None) -> Dataset:
     dsb.add_scalar_attribute("item", "name", item_info)
 
     _log.info("adding users", count=ui_data.num_rows)
-    dsb.add_entities("user", ui_data.column("user_id"))
+    dsb.add_entities("user", pc.unique(ui_data.column("user_id")))
     dsb.add_scalar_attribute("user", "steam_id", ui_data.select(["user_id", "steam_id"]))
 
     _log.info("adding user-item interactions")
