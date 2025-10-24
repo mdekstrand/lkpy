@@ -17,6 +17,7 @@ def test_collect_empty():
     acc = ValueAccumulator()
     rv = acc.accumulate()
 
+    assert rv["n"] == 0
     assert np.isnan(rv["mean"])
     assert np.isnan(rv["median"])
     assert np.isnan(rv["std"])
@@ -28,6 +29,7 @@ def test_collect_one(x):
     acc.add(x)
     rv = acc.accumulate()
 
+    assert rv["n"] == 1
     assert rv["mean"] == x
     assert rv["median"] == x
     assert rv["std"] == approx(0.0)
@@ -40,6 +42,7 @@ def test_collect_list(xs):
         acc.add(x)
     rv = acc.accumulate()
 
+    assert rv["n"] == len(xs)
     assert rv["mean"] == approx(np.mean(xs))
     assert rv["median"] == approx(np.median(xs))
     assert rv["std"] == approx(np.std(xs), nan_ok=True)
