@@ -4,10 +4,24 @@
 # Licensed under the MIT license, see LICENSE.md for details.
 # SPDX-License-Identifier: MIT
 
+from __future__ import annotations
+
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 X = TypeVar("X", contravariant=True)
 R = TypeVar("R", covariant=True)
+
+
+@runtime_checkable
+class AccumulatorFactory(Protocol, Generic[X, R]):
+    def make_accumulator(self) -> Accumulator[X, R]:
+        """
+        Create an accumulator for the results of this object.
+
+        Return:
+            An accumulator.
+        """
+        ...
 
 
 @runtime_checkable
