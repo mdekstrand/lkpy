@@ -24,7 +24,7 @@ class ValueStatistics(TypedDict):
     std: float
 
 
-class ValueAccumulator(Accumulator[float, dict[str, float]]):
+class ValueAccumulator(Accumulator[float | None, dict[str, float]]):
     """
     An accumulator for single real values, computing basic statistics.
     """
@@ -43,8 +43,8 @@ class ValueAccumulator(Accumulator[float, dict[str, float]]):
     def __len__(self) -> int:
         return self._n
 
-    def add(self, value: float):
-        if np.isnan(value):
+    def add(self, value: float | None):
+        if value is None or np.isnan(value):
             return
 
         if self._n == len(self._values):
