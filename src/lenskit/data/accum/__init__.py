@@ -9,10 +9,13 @@ Data accumulation support
 """
 
 from ._proto import Accumulator, R, SplittableAccumulator, X
+from ._value import ValueAccumulator, ValueStatistics
 
 __all__ = [
     "Accumulator",
     "SplittableAccumulator",
     "X",
     "R",
+    "ValueAccumulator",
+    "ValueStatistics",
 ]
