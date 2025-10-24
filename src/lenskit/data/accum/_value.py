@@ -44,6 +44,9 @@ class ValueAccumulator(Accumulator[float, dict[str, float]]):
         return self._n
 
     def add(self, value: float):
+        if np.isnan(value):
+            return
+
         if self._n == len(self._values):
             self._values.resize(self._n * 2)
         self._values[self._n] = value

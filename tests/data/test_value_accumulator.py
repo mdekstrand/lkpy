@@ -47,3 +47,18 @@ def test_collect_list(xs):
     assert rv["mean"] == approx(np.mean(xs))
     assert rv["median"] == approx(np.median(xs))
     assert rv["std"] == approx(np.std(xs), nan_ok=True)
+
+
+@given(st.lists(st.floats(allow_infinity=False)))
+def test_collect_list_nan(xs):
+    acc = ValueAccumulator()
+    for x in xs:
+        acc.add(x)
+    rv = acc.accumulate()
+
+    xs = np.array(xs)
+    finite = np.isfinite(xs)
+    assert rv["n"] == np.sum(finite)
+    assert rv["mean"] == approx(np.mean(xs[finite]), nan_ok=True)
+    assert rv["median"] == approx(np.median(xs[finite]), nan_ok=True)
+    assert rv["std"] == approx(np.std(xs[finite]), nan_ok=True)
