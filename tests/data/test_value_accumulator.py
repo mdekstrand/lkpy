@@ -62,3 +62,25 @@ def test_collect_list_nan(xs):
     assert rv["mean"] == approx(np.mean(xs[finite]), nan_ok=True)
     assert rv["median"] == approx(np.median(xs[finite]), nan_ok=True)
     assert rv["std"] == approx(np.std(xs[finite]), nan_ok=True)
+
+
+@given(st.lists(st.floats(allow_infinity=False)), st.lists(st.floats(allow_infinity=False)))
+def test_split_combine(xs, ys):
+    acc = ValueAccumulator()
+    right = acc.split_accumulator()
+
+    for x in xs:
+        acc.add(x)
+
+    for y in ys:
+        right.add(y)
+
+    acc.combine(right)
+    rv = acc.accumulate()
+
+    xs = np.array(xs + ys)
+    finite = np.isfinite(xs)
+    assert rv["n"] == np.sum(finite)
+    assert rv["mean"] == approx(np.mean(xs[finite]), nan_ok=True)
+    assert rv["median"] == approx(np.median(xs[finite]), nan_ok=True)
+    assert rv["std"] == approx(np.std(xs[finite]), nan_ok=True)
