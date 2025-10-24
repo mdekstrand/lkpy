@@ -36,6 +36,13 @@ class ValueAccumulator(Accumulator[float, dict[str, float]]):
         self._values = np.empty(INITIAL_SIZE)
         self._n = 0
 
+    @property
+    def values(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+        return self._values[: self._n]
+
+    def __len__(self) -> int:
+        return self._n
+
     def add(self, value: float):
         if self._n == len(self._values):
             self._values.resize(self._n * 2)

@@ -38,7 +38,8 @@ def test_collect_one(x):
 @given(st.lists(st.floats(allow_infinity=False, allow_nan=False), min_size=2))
 def test_collect_list(xs):
     acc = ValueAccumulator()
-    for x in xs:
+    for i, x in enumerate(xs):
+        assert len(acc) == i
         acc.add(x)
     rv = acc.accumulate()
 
