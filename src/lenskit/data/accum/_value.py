@@ -8,7 +8,7 @@ from typing import TypedDict
 
 import numpy as np
 
-from ._proto import SplittableAccumulator
+from ._proto import Accumulator
 
 INITIAL_SIZE = 1024
 
@@ -24,7 +24,7 @@ class ValueStatistics(TypedDict):
     std: float
 
 
-class ValueAccumulator(SplittableAccumulator[float | None, dict[str, float]]):
+class ValueAccumulator(Accumulator[float | None, dict[str, float]]):
     """
     An accumulator for single real values, computing basic statistics.
     """
@@ -60,10 +60,3 @@ class ValueAccumulator(SplittableAccumulator[float | None, dict[str, float]]):
             "median": np.median(self._values[:n]).item(),
             "std": np.std(self._values[:n]).item(),
         }
-
-    def split_accumulator(self):
-        return ValueAccumulator()
-
-    def combine(self, right):
-        self._values = np.concat([self.values, right.values])
-        self._n = self._n + right._n

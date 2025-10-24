@@ -4,7 +4,7 @@
 # Licensed under the MIT license, see LICENSE.md for details.
 # SPDX-License-Identifier: MIT
 
-from typing_extensions import Generic, Protocol, Self, TypeVar, runtime_checkable
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 X = TypeVar("X", contravariant=True)
 R = TypeVar("R", covariant=True)
@@ -25,41 +25,5 @@ class Accumulator(Protocol, Generic[X, R]):
     def accumulate(self) -> R:
         """
         Compute the accumulated value from this accumulator.
-        """
-        ...
-
-
-@runtime_checkable
-class SplittableAccumulator(Accumulator[X, R], Protocol):
-    r"""
-    Extension of :class:`Accumulator` for accumulators that support combining
-    sub-accumulators.
-
-    The accumulations and combination defined by such an accumulator must be
-    **associative**, but they do not need to be commutative.
-    """
-
-    def split_accumulator(self) -> Self:
-        """
-        Split this accumulator into two. The currently-accumulated values, if
-        any, are kept on `self`, and a new empty accumulator is returned.  If
-        the accumulator is not commutative, then ``self`` is the left
-        accumulator and method returns the right accumulator.
-
-        The accumulators can later be combined with :meth:`combine`.
-
-        Returns:
-            The right-hand side of the split accumulator.
-        """
-        ...
-
-    def combine(self, right: Self) -> None:
-        """
-        Combine another accumulator into this one.
-
-        Args:
-            right:
-                The right-hand accumulator to accumulate into ``self`` (which
-                is the left accumulator).
         """
         ...
