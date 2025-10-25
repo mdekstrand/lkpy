@@ -10,11 +10,11 @@ import hypothesis.strategies as st
 from hypothesis import given
 from pytest import approx
 
-from lenskit.data.accum import ValueAccumulator
+from lenskit.data.accum import ValueStatAccumulator
 
 
 def test_collect_empty():
-    acc = ValueAccumulator()
+    acc = ValueStatAccumulator()
     rv = acc.accumulate()
 
     assert rv["n"] == 0
@@ -25,7 +25,7 @@ def test_collect_empty():
 
 @given(st.floats(allow_infinity=False, allow_nan=False))
 def test_collect_one(x):
-    acc = ValueAccumulator()
+    acc = ValueStatAccumulator()
     acc.add(x)
     rv = acc.accumulate()
 
@@ -37,7 +37,7 @@ def test_collect_one(x):
 
 @given(st.lists(st.floats(allow_infinity=False, allow_nan=False), min_size=2))
 def test_collect_list(xs):
-    acc = ValueAccumulator()
+    acc = ValueStatAccumulator()
     for i, x in enumerate(xs):
         assert len(acc) == i
         acc.add(x)
@@ -51,7 +51,7 @@ def test_collect_list(xs):
 
 @given(st.lists(st.floats(allow_infinity=False)))
 def test_collect_list_nan(xs):
-    acc = ValueAccumulator()
+    acc = ValueStatAccumulator()
     for x in xs:
         acc.add(x)
     rv = acc.accumulate()
@@ -66,7 +66,7 @@ def test_collect_list_nan(xs):
 
 @given(st.lists(st.floats(allow_infinity=False)), st.lists(st.floats(allow_infinity=False)))
 def test_split_combine(xs, ys):
-    acc = ValueAccumulator()
+    acc = ValueStatAccumulator()
     right = acc.split_accumulator()
 
     for x in xs:

@@ -24,7 +24,7 @@ class ValueStatistics(TypedDict):
     std: float
 
 
-class ValueAccumulator(Accumulator[float | None, dict[str, float]]):
+class ValueStatAccumulator(Accumulator[float | None, dict[str, float]]):
     """
     An accumulator for single real values, computing basic statistics.
     """
