@@ -37,32 +37,30 @@ pub fn score_explicit<'py>(
         let tgt_items = make_array(tgt_items.0);
 
         let ref_is: &Int32Array = checked_array_ref("reference item", "Int32", &ref_items)?;
-        let ref_islice = ref_is.values();
         let ref_vs: &Float32Array = checked_array_ref("reference ratings", "Float32", &ref_rates)?;
-        let ref_vslice = ref_vs.values();
         let tgt_is: &Int32Array = checked_array_ref("target item", "Int32", &tgt_items)?;
 
         let mut heaps: Vec<_> = ScoreAccumulator::new_array(sims.n_cols, tgt_is, max_nbrs);
 
         // we loop reference items, looking for targets.
         // in the common (slow) top-N case, reference items are shorter than targets.
-        ref_islice
-            .into_par_iter()
-            .zip(ref_vslice.into_par_iter())
-            .try_for_each(|(ri, rv)| {
-                let ri = *ri as usize;
-                let rv = *rv;
+        let n = ref_is.len();
+        (0..n).into_par_iter().try_for_each(|i| {
+            if ref_is.is_valid(i) && ref_vs.is_valid(i) {
+                let ri = ref_is.value(i) as usize;
+                let rv = ref_vs.value(i);
                 let (sp, ep) = sims.extent(ri);
-                for i in sp..ep {
-                    let i = i as usize;
-                    let ti = sims.col_inds.value(i);
-                    let sim = sims.values.value(i);
+                for j in sp..ep {
+                    let j = j as usize;
+                    let ti = sims.col_inds.value(j);
+                    let sim = sims.values.value(j);
 
                     let acc = &heaps[ti as usize];
                     acc.add_value(sim, rv)?;
                 }
-                Result::<(), PyErr>::Ok(())
-            })?;
+            }
+            Result::<(), PyErr>::Ok(())
+        })?;
 
         let out = collect_items_averaged(&mut heaps, tgt_is, min_nbrs as usize);
         let counts = collect_items_counts(&heaps, tgt_is);

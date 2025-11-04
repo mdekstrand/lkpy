@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Accumulator for scores in k-NN.
+use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
 use arrow::array::{Float32Array, Float32Builder, Int32Array, Int32Builder};
@@ -38,7 +39,7 @@ impl ScoreAccumulator<()> {
     }
 }
 
-impl<T: Clone> ScoreAccumulator<T> {
+impl<T: Clone + PartialOrd> ScoreAccumulator<T> {
     pub fn new_array(n: usize, active: &Int32Array, limit: u16) -> Vec<ScoreAccumulator<T>> {
         // create accumulators for all items, and enable the targets
         let mut heaps: Vec<ScoreAccumulator<T>> = Vec::with_capacity(n);
@@ -80,22 +81,22 @@ impl<T> ScoreAccumulator<T> {
             AccStore::Full(h) => h.len(),
         }
     }
+}
 
+impl<T: PartialOrd> ScoreAccumulator<T> {
     pub fn add_value(&self, weight: f32, value: T) -> PyResult<()> {
-        if !self.enabled() {
-            return Ok(());
-        }
-
-        let mut data = self.storage_lock();
-        let entry = AccEntry::new(weight, value)?;
-        if let Some(vec) = data.vector_mut(self.limit as usize) {
-            vec.push(entry);
-        } else {
-            let heap = data.heap_mut(self.limit as usize);
-            if entry.weight > heap.peek().unwrap().weight {
-                heap.push(entry);
-                while heap.len() > self.limit as usize {
-                    heap.pop();
+        if self.enabled() {
+            let mut data = self.storage_lock();
+            let entry = AccEntry::new(weight, value)?;
+            if let Some(vec) = data.vector_mut(self.limit as usize) {
+                vec.push(entry);
+            } else {
+                let heap = data.heap_mut(self.limit as usize);
+                if entry.weight > heap.peek().unwrap().weight {
+                    heap.push(entry);
+                    while heap.len() > self.limit as usize {
+                        heap.pop();
+                    }
                 }
             }
         }
@@ -114,7 +115,7 @@ impl<T> ScoreAccumulator<T> {
     }
 }
 
-impl<T> AccStore<T> {
+impl<T: PartialOrd> AccStore<T> {
     fn heap_mut(&mut self, limit: usize) -> &mut BinaryHeap<AccEntry<T>> {
         match self {
             AccStore::Full(h) => h,
@@ -194,19 +195,28 @@ impl<T> PartialEq for AccEntry<T> {
 
 impl<T> Eq for AccEntry<T> {}
 
-impl<T> PartialOrd for AccEntry<T> {
+impl<T: PartialOrd> PartialOrd for AccEntry<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // reverse the ordering to make a min-heap
-        other.weight.partial_cmp(&self.weight)
+        Some(self.cmp(other))
     }
 }
 
-impl<T> Ord for AccEntry<T> {
+impl<T: PartialOrd> Ord for AccEntry<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // reverse the ordering to make a min-heap
-        other.weight.cmp(&self.weight)
+        // sort by weight, deterministically break ties by the value.
+        // do all of this backwards to make a min-heap
+        if self.weight > other.weight {
+            Ordering::Less
+        } else if self.weight < other.weight {
+            Ordering::Greater
+        } else if let Some(o) = other.data.partial_cmp(&self.data) {
+            o
+        } else {
+            Ordering::Equal
+        }
     }
 }
+
 pub(super) fn collect_items_counts<T>(
     heaps: &[ScoreAccumulator<T>],
     tgt_is: &Int32Array,
