@@ -9,36 +9,45 @@ use std::collections::BinaryHeap;
 
 use arrow::array::{Float32Array, Float32Builder, Int32Array, Int32Builder};
 use ordered_float::NotNan;
+use parking_lot::Mutex;
+use parking_lot::MutexGuard;
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-/// Accumulate scores.
+/// Thread-safe accumulator for scores.
+pub(super) struct ScoreAccumulator<T> {
+    limit: u16,
+    data: parking_lot::Mutex<AccStore<T>>,
+}
+
 #[derive(Clone)]
-pub(super) enum ScoreAccumulator<T> {
-    Disabled,
+enum AccStore<T> {
     Empty,
     Partial(Vec<AccEntry<T>>),
     Full(BinaryHeap<AccEntry<T>>),
 }
 
-impl<T> Default for ScoreAccumulator<T> {
+impl<T> Default for AccStore<T> {
     fn default() -> Self {
-        Self::Disabled
+        AccStore::Empty
     }
 }
 
 impl ScoreAccumulator<()> {
-    pub fn add_weight(&mut self, limit: usize, weight: f32) -> PyResult<()> {
-        self.add_value(limit, weight, ())
+    pub fn add_weight(&self, weight: f32) -> PyResult<()> {
+        self.add_value(weight, ())
     }
 }
 
 impl<T: Clone> ScoreAccumulator<T> {
-    pub fn new_array(n: usize, active: &Int32Array) -> Vec<ScoreAccumulator<T>> {
+    pub fn new_array(n: usize, active: &Int32Array, limit: u16) -> Vec<ScoreAccumulator<T>> {
         // create accumulators for all items, and enable the targets
-        let mut heaps: Vec<ScoreAccumulator<T>> = vec![ScoreAccumulator::disabled(); n];
+        let mut heaps: Vec<ScoreAccumulator<T>> = Vec::with_capacity(n);
+        for _i in 0..n {
+            heaps.push(Self::disabled());
+        }
         for i in active.iter() {
             if let Some(i) = i {
-                heaps[i as usize].enable()
+                heaps[i as usize].enable(limit)
             }
         }
         heaps
@@ -48,77 +57,90 @@ impl<T: Clone> ScoreAccumulator<T> {
 impl<T> ScoreAccumulator<T> {
     /// Create a disabled score accumulator.
     pub fn disabled() -> Self {
-        Self::Disabled
+        ScoreAccumulator {
+            limit: 0,
+            data: Mutex::new(AccStore::Empty),
+        }
     }
 
     /// Enable a score accumulator.
-    pub fn enable(&mut self) {
-        match self {
-            Self::Disabled => *self = Self::Empty,
-            _ => (),
-        }
+    pub fn enable(&mut self, limit: u16) {
+        self.limit = limit;
     }
 
     pub fn enabled(&self) -> bool {
-        match self {
-            ScoreAccumulator::Disabled => false,
-            _ => true,
-        }
+        self.limit > 0
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            ScoreAccumulator::Empty | ScoreAccumulator::Disabled => 0,
-            ScoreAccumulator::Partial(v) => v.len(),
-            ScoreAccumulator::Full(h) => h.len(),
+        let data = self.data.lock();
+        match &*data {
+            AccStore::Empty => 0,
+            AccStore::Partial(v) => v.len(),
+            AccStore::Full(h) => h.len(),
         }
     }
 
-    fn heap_mut(&mut self) -> &mut BinaryHeap<AccEntry<T>> {
-        match self {
-            ScoreAccumulator::Disabled => {
-                panic!("mutable heaps not available on disabled accumulators")
+    fn heap_mut<'g, 'a: 'g>(
+        &'a self,
+        lock: &'g mut MutexGuard<'_, AccStore<T>>,
+    ) -> &'g mut BinaryHeap<AccEntry<T>> {
+        let store = &mut **lock;
+        // pass 1: upgrade the heap
+        match store {
+            AccStore::Full(_) => (),
+            AccStore::Empty => {
+                let heap = BinaryHeap::with_capacity(self.limit as usize + 1);
+                *store = AccStore::Full(heap);
             }
-            ScoreAccumulator::Full(h) => h,
-            ScoreAccumulator::Empty => {
-                let heap = BinaryHeap::new();
-                *self = ScoreAccumulator::Full(heap);
-                self.heap_mut()
-            }
-            ScoreAccumulator::Partial(vec) => {
-                let mut heap = BinaryHeap::with_capacity(vec.len() + 1);
+            AccStore::Partial(vec) => {
+                let mut heap = BinaryHeap::with_capacity(self.limit as usize + 1);
                 while let Some(v) = vec.pop() {
                     heap.push(v);
                 }
-                *self = ScoreAccumulator::Full(heap);
-                self.heap_mut()
+                *store = AccStore::Full(heap);
             }
+        }
+
+        if let AccStore::Full(h) = store {
+            h
+        } else {
+            unreachable!()
         }
     }
 
-    fn vector_mut(&mut self, limit: usize) -> Option<&mut Vec<AccEntry<T>>> {
-        match self {
-            ScoreAccumulator::Empty => {
-                // make a vector!
-                let vec = Vec::with_capacity(limit);
-                *self = ScoreAccumulator::Partial(vec);
-                self.vector_mut(limit)
-            }
-            ScoreAccumulator::Partial(vec) if vec.len() < limit => Some(vec),
-            _ => None,
+    fn vector_mut<'g, 's: 'g>(
+        &'s self,
+        lock: &'g mut MutexGuard<'_, AccStore<T>>,
+    ) -> Option<&'g mut Vec<AccEntry<T>>> {
+        let store = &mut **lock;
+        if let AccStore::Empty = store {
+            let vec = Vec::with_capacity(self.limit as usize);
+            *store = AccStore::Partial(vec);
+        }
+
+        if let AccStore::Partial(v) = store {
+            Some(v)
+        } else {
+            None
         }
     }
 
-    pub fn add_value(&mut self, limit: usize, weight: f32, value: T) -> PyResult<()> {
+    pub fn add_value(&self, weight: f32, value: T) -> PyResult<()> {
+        if !self.enabled() {
+            return Ok(());
+        }
+
+        let mut lock = self.storage_lock();
         if self.enabled() {
             let entry = AccEntry::new(weight, value)?;
-            if let Some(vec) = self.vector_mut(limit) {
+            if let Some(vec) = self.vector_mut(&mut lock) {
                 vec.push(entry);
             } else {
-                let heap = self.heap_mut();
+                let heap = self.heap_mut(&mut lock);
                 if entry.weight > heap.peek().unwrap().weight {
                     heap.push(entry);
-                    while heap.len() > limit {
+                    while heap.len() > self.limit as usize {
                         heap.pop();
                     }
                 }
@@ -128,19 +150,31 @@ impl<T> ScoreAccumulator<T> {
         Ok(())
     }
 
+    /// Get the underlying storage, locked.
+    fn storage_lock<'lock, 'a: 'lock>(&'a self) -> MutexGuard<'lock, AccStore<T>> {
+        self.data.lock()
+    }
+
+    /// Get the underlying storage as a direct mutable reference.
+    fn storage_mut(&mut self) -> &mut AccStore<T> {
+        self.data.get_mut()
+    }
+}
+
+impl<T> AccStore<T> {
     pub fn total_weight(&self) -> f32 {
         match self {
-            Self::Empty | Self::Disabled => 0.0,
+            Self::Empty => 0.0,
             Self::Full(heap) => heap.iter().map(AccEntry::get_weight).sum(),
             Self::Partial(vec) => vec.iter().map(AccEntry::get_weight).sum(),
         }
     }
 }
 
-impl ScoreAccumulator<f32> {
+impl AccStore<f32> {
     pub fn weighted_sum(&self) -> f32 {
         match self {
-            Self::Disabled | Self::Empty => 0.0,
+            Self::Empty => 0.0,
             Self::Full(heap) => heap.iter().map(|a| a.weight * a.data).sum(),
             Self::Partial(vec) => vec.iter().map(|a| a.weight * a.data).sum(),
         }
@@ -206,16 +240,17 @@ pub(super) fn collect_items_counts<T>(
 }
 
 pub(super) fn collect_items_averaged(
-    heaps: &[ScoreAccumulator<f32>],
+    heaps: &mut [ScoreAccumulator<f32>],
     tgt_is: &Int32Array,
     min_nbrs: usize,
 ) -> Float32Array {
     let mut out = Float32Builder::with_capacity(tgt_is.len());
     for ti in tgt_is {
         if let Some(ti) = ti {
-            let acc = &heaps[ti as usize];
+            let acc = &mut heaps[ti as usize];
             if acc.len() >= min_nbrs {
-                let score = acc.weighted_sum() / acc.total_weight();
+                let store = acc.storage_mut();
+                let score = store.weighted_sum() / store.total_weight();
                 out.append_value(score);
             } else {
                 out.append_null();
@@ -228,16 +263,17 @@ pub(super) fn collect_items_averaged(
 }
 
 pub(super) fn collect_items_summed(
-    heaps: &[ScoreAccumulator<()>],
+    heaps: &mut [ScoreAccumulator<()>],
     tgt_is: &Int32Array,
     min_nbrs: usize,
 ) -> Float32Array {
     let mut out = Float32Builder::with_capacity(tgt_is.len());
     for ti in tgt_is {
         if let Some(ti) = ti {
-            let acc = &heaps[ti as usize];
+            let acc = &mut heaps[ti as usize];
             if acc.len() >= min_nbrs {
-                let score = acc.total_weight();
+                let store = acc.storage_mut();
+                let score = store.total_weight();
                 out.append_value(score);
             } else {
                 out.append_null();

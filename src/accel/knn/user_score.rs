@@ -24,8 +24,8 @@ pub fn user_score_items_explicit<'py>(
     nbr_rows: PyArrowType<ArrayData>,
     nbr_sims: PyArrowType<ArrayData>,
     ratings: PyArrowType<ArrayData>,
-    max_nbrs: usize,
-    min_nbrs: usize,
+    max_nbrs: u16,
+    min_nbrs: u16,
 ) -> PyResult<PyArrowType<ArrayData>> {
     let ratings = make_array(ratings.0);
     let rmat = CSRMatrix::<i32>::from_arrow(ratings)?;
@@ -38,7 +38,7 @@ pub fn user_score_items_explicit<'py>(
     let nbr_sims_ref = make_array(nbr_sims.0);
     let nbr_sims: &Float32Array = checked_array_ref("neighbor sims", "float32", &nbr_sims_ref)?;
 
-    let mut heaps = ScoreAccumulator::new_array(rmat.n_cols, tgt_is);
+    let mut heaps = ScoreAccumulator::new_array(rmat.n_cols, tgt_is, max_nbrs);
     let iter = nbr_is.iter().zip(nbr_sims.iter()).flat_map(|ns| match ns {
         (Some(n), Some(s)) => Some((n, s)),
         _ => None,
@@ -50,11 +50,11 @@ pub fn user_score_items_explicit<'py>(
             let i = i as usize;
             let item = rmat.col_inds.value(i);
             let rating = rmat.values.value(i);
-            heaps[item as usize].add_value(max_nbrs, sim, rating)?;
+            heaps[item as usize].add_value(sim, rating)?;
         }
     }
 
-    let out = collect_items_averaged(&heaps, tgt_is, min_nbrs);
+    let out = collect_items_averaged(&mut heaps, tgt_is, min_nbrs as usize);
 
     Ok(out.into_data().into())
 }
@@ -65,8 +65,8 @@ pub fn user_score_items_implicit<'py>(
     nbr_rows: PyArrowType<ArrayData>,
     nbr_sims: PyArrowType<ArrayData>,
     ratings: PyArrowType<ArrayData>,
-    max_nbrs: usize,
-    min_nbrs: usize,
+    max_nbrs: u16,
+    min_nbrs: u16,
 ) -> PyResult<PyArrowType<ArrayData>> {
     let ratings = make_array(ratings.0);
     let rmat = CSRStructure::<i32>::from_arrow(ratings)?;
@@ -79,7 +79,7 @@ pub fn user_score_items_implicit<'py>(
     let nbr_sims_ref = make_array(nbr_sims.0);
     let nbr_sims: &Float32Array = checked_array_ref("neighbor sims", "float32", &nbr_sims_ref)?;
 
-    let mut heaps = ScoreAccumulator::new_array(rmat.n_cols, tgt_is);
+    let mut heaps = ScoreAccumulator::new_array(rmat.n_cols, tgt_is, max_nbrs);
     let iter = nbr_is.iter().zip(nbr_sims.iter()).flat_map(|ns| match ns {
         (Some(n), Some(s)) => Some((n, s)),
         _ => None,
@@ -90,11 +90,11 @@ pub fn user_score_items_implicit<'py>(
         for i in sp..ep {
             let i = i as usize;
             let item = rmat.col_inds.value(i);
-            heaps[item as usize].add_weight(max_nbrs, sim)?;
+            heaps[item as usize].add_weight(sim)?;
         }
     }
 
-    let out = collect_items_summed(&heaps, tgt_is, min_nbrs);
+    let out = collect_items_summed(&mut heaps, tgt_is, min_nbrs as usize);
 
     Ok(out.into_data().into())
 }

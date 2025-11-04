@@ -8,7 +8,6 @@ use arrow::{
     array::{make_array, Array, ArrayData, Float32Array, Int32Array},
     pyarrow::PyArrowType,
 };
-use parking_lot::Mutex;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -28,8 +27,8 @@ pub fn score_explicit<'py>(
     ref_items: PyArrowType<ArrayData>,
     ref_rates: PyArrowType<ArrayData>,
     tgt_items: PyArrowType<ArrayData>,
-    max_nbrs: usize,
-    min_nbrs: usize,
+    max_nbrs: u16,
+    min_nbrs: u16,
 ) -> PyResult<(PyArrowType<ArrayData>, PyArrowType<ArrayData>)> {
     py.allow_threads(|| {
         let sims = sim_matrix(sims.0)?;
@@ -43,10 +42,7 @@ pub fn score_explicit<'py>(
         let ref_vslice = ref_vs.values();
         let tgt_is: &Int32Array = checked_array_ref("target item", "Int32", &tgt_items)?;
 
-        let heaps: Vec<_> = ScoreAccumulator::new_array(sims.n_cols, tgt_is)
-            .into_iter()
-            .map(|a| Mutex::new(a))
-            .collect();
+        let mut heaps: Vec<_> = ScoreAccumulator::new_array(sims.n_cols, tgt_is, max_nbrs);
 
         // we loop reference items, looking for targets.
         // in the common (slow) top-N case, reference items are shorter than targets.
@@ -62,14 +58,13 @@ pub fn score_explicit<'py>(
                     let ti = sims.col_inds.value(i);
                     let sim = sims.values.value(i);
 
-                    let mut acc = heaps[ti as usize].lock();
-                    acc.add_value(max_nbrs, sim, rv)?;
+                    let acc = &heaps[ti as usize];
+                    acc.add_value(sim, rv)?;
                 }
                 Result::<(), PyErr>::Ok(())
             })?;
 
-        let heaps: Vec<_> = heaps.into_iter().map(Mutex::into_inner).collect();
-        let out = collect_items_averaged(&heaps, tgt_is, min_nbrs);
+        let out = collect_items_averaged(&mut heaps, tgt_is, min_nbrs as usize);
         let counts = collect_items_counts(&heaps, tgt_is);
         assert_eq!(out.len(), tgt_is.len());
 
@@ -84,8 +79,8 @@ pub fn score_implicit<'py>(
     sims: PyArrowType<ArrayData>,
     ref_items: PyArrowType<ArrayData>,
     tgt_items: PyArrowType<ArrayData>,
-    max_nbrs: usize,
-    min_nbrs: usize,
+    max_nbrs: u16,
+    min_nbrs: u16,
 ) -> PyResult<(PyArrowType<ArrayData>, PyArrowType<ArrayData>)> {
     py.allow_threads(|| {
         let sims = sim_matrix(sims.0)?;
@@ -96,7 +91,7 @@ pub fn score_implicit<'py>(
         let ref_islice = ref_is.values();
         let tgt_is: &Int32Array = checked_array_ref("target item", "Int32", &tgt_items)?;
 
-        let mut heaps = ScoreAccumulator::new_array(sims.n_cols, tgt_is);
+        let mut heaps = ScoreAccumulator::new_array(sims.n_cols, tgt_is, max_nbrs);
 
         // we loop reference items, looking for targets.
         // in the common (slow) top-N case, reference items are shorter than targets.
@@ -108,12 +103,12 @@ pub fn score_implicit<'py>(
                 let ti = sims.col_inds.value(i);
                 let sim = sims.values.value(i);
 
-                let acc = &mut heaps[ti as usize];
-                acc.add_weight(max_nbrs, sim)?;
+                let acc = &heaps[ti as usize];
+                acc.add_weight(sim)?;
             }
         }
 
-        let out = collect_items_summed(&heaps, &tgt_is, min_nbrs);
+        let out = collect_items_summed(&mut heaps, &tgt_is, min_nbrs as usize);
         let counts = collect_items_counts(&heaps, tgt_is);
         assert_eq!(out.len(), tgt_is.len());
 
