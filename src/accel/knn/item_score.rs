@@ -95,7 +95,7 @@ pub fn score_implicit<'py>(
 
         // we loop reference items, looking for targets.
         // in the common (slow) top-N case, reference items are shorter than targets.
-        for ri in ref_islice {
+        ref_islice.into_par_iter().try_for_each(|ri| {
             let ri = *ri as usize;
             let (sp, ep) = sims.extent(ri);
             for i in sp..ep {
@@ -106,7 +106,8 @@ pub fn score_implicit<'py>(
                 let acc = &heaps[ti as usize];
                 acc.add_weight(sim)?;
             }
-        }
+            Result::<(), PyErr>::Ok(())
+        })?;
 
         let out = collect_items_summed(&mut heaps, &tgt_is, min_nbrs as usize);
         let counts = collect_items_counts(&heaps, tgt_is);
