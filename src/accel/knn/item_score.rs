@@ -8,7 +8,9 @@ use arrow::{
     array::{make_array, Array, ArrayData, Float32Array, Int32Array},
     pyarrow::PyArrowType,
 };
+use parking_lot::Mutex;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 use crate::{
     arrow::checked_array_ref,
@@ -41,25 +43,32 @@ pub fn score_explicit<'py>(
         let ref_vslice = ref_vs.values();
         let tgt_is: &Int32Array = checked_array_ref("target item", "Int32", &tgt_items)?;
 
-        let mut heaps = ScoreAccumulator::new_array(sims.n_cols, tgt_is);
-        // let heaps = AtomicCell::new_vec(ScoreAccumulator::new_array(sims.n_cols, tgt_is));
+        let heaps: Vec<_> = ScoreAccumulator::new_array(sims.n_cols, tgt_is)
+            .into_iter()
+            .map(|a| Mutex::new(a))
+            .collect();
 
         // we loop reference items, looking for targets.
         // in the common (slow) top-N case, reference items are shorter than targets.
-        for (ri, rv) in ref_islice.iter().zip(ref_vslice.iter()) {
-            let ri = *ri as usize;
-            let rv = *rv;
-            let (sp, ep) = sims.extent(ri);
-            for i in sp..ep {
-                let i = i as usize;
-                let ti = sims.col_inds.value(i);
-                let sim = sims.values.value(i);
+        ref_islice
+            .into_par_iter()
+            .zip(ref_vslice.into_par_iter())
+            .try_for_each(|(ri, rv)| {
+                let ri = *ri as usize;
+                let rv = *rv;
+                let (sp, ep) = sims.extent(ri);
+                for i in sp..ep {
+                    let i = i as usize;
+                    let ti = sims.col_inds.value(i);
+                    let sim = sims.values.value(i);
 
-                let acc = &mut heaps[ti as usize];
-                acc.add_value(max_nbrs, sim, rv)?;
-            }
-        }
+                    let mut acc = heaps[ti as usize].lock();
+                    acc.add_value(max_nbrs, sim, rv)?;
+                }
+                Result::<(), PyErr>::Ok(())
+            })?;
 
+        let heaps: Vec<_> = heaps.into_iter().map(Mutex::into_inner).collect();
         let out = collect_items_averaged(&heaps, tgt_is, min_nbrs);
         let counts = collect_items_counts(&heaps, tgt_is);
         assert_eq!(out.len(), tgt_is.len());
