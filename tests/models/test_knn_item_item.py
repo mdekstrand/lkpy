@@ -20,7 +20,7 @@ from pytest import approx, fixture, mark
 from lenskit.basic.history import UserTrainingHistoryLookup
 from lenskit.data import ItemList, ItemListCollection, UserIDKey, Vocabulary, from_interactions_df
 from lenskit.diagnostics import DataWarning
-from lenskit.knn.item import ItemKNNScorer
+from lenskit.knn.item import ItemKNNConfig, ItemKNNScorer
 from lenskit.pipeline import topn_pipeline
 from lenskit.pipeline.common import predict_pipeline
 from lenskit.testing import BasicComponentTests, ScorerTests
@@ -59,7 +59,7 @@ def ml_subset(ml_ratings):
     return top_rates
 
 
-class TestItemKNN(BasicComponentTests, ScorerTests):
+class TestItemKNNExplicit(BasicComponentTests, ScorerTests):
     can_score = "some"
     component = ItemKNNScorer
     expected_rmse = (0.85, 0.95)
@@ -78,6 +78,31 @@ class TestItemKNN(BasicComponentTests, ScorerTests):
         if orig.item_means is not None:
             assert copy.item_means is not None
             assert all(copy.item_means == orig.item_means)
+
+        assert all(copy.item_counts == orig.item_counts)
+        assert copy.item_counts.sum() == len(r_mat.data)
+        assert len(r_mat.data) == len(r_mat.data)
+        assert all(r_mat.indptr == o_mat.indptr)
+        assert r_mat.data == approx(o_mat.data)
+
+        assert all(r_mat.indptr == o_mat.indptr)
+
+
+class TestItemKNNImplicit(BasicComponentTests, ScorerTests):
+    can_score = "some"
+    component = ItemKNNScorer
+    config = ItemKNNConfig(feedback="implicit")
+    expected_ndcg = 0.03
+
+    def verify_models_equivalent(self, orig: ItemKNNScorer, copy: ItemKNNScorer):
+        o_mat = orig.sim_matrix.to_scipy()
+        r_mat = copy.sim_matrix.to_scipy()
+        assert all(np.logical_not(np.isnan(r_mat.data)))
+        assert all(r_mat.data > 0)
+        # a little tolerance
+        assert all(r_mat.data < 1 + 1.0e-6)
+
+        assert copy.items == orig.items
 
         assert all(copy.item_counts == orig.item_counts)
         assert copy.item_counts.sum() == len(r_mat.data)
