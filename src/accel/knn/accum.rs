@@ -81,68 +81,21 @@ impl<T> ScoreAccumulator<T> {
         }
     }
 
-    fn heap_mut<'g, 'a: 'g>(
-        &'a self,
-        lock: &'g mut MutexGuard<'_, AccStore<T>>,
-    ) -> &'g mut BinaryHeap<AccEntry<T>> {
-        let store = &mut **lock;
-        // pass 1: upgrade the heap
-        match store {
-            AccStore::Full(_) => (),
-            AccStore::Empty => {
-                let heap = BinaryHeap::with_capacity(self.limit as usize + 1);
-                *store = AccStore::Full(heap);
-            }
-            AccStore::Partial(vec) => {
-                let mut heap = BinaryHeap::with_capacity(self.limit as usize + 1);
-                while let Some(v) = vec.pop() {
-                    heap.push(v);
-                }
-                *store = AccStore::Full(heap);
-            }
-        }
-
-        if let AccStore::Full(h) = store {
-            h
-        } else {
-            unreachable!()
-        }
-    }
-
-    fn vector_mut<'g, 's: 'g>(
-        &'s self,
-        lock: &'g mut MutexGuard<'_, AccStore<T>>,
-    ) -> Option<&'g mut Vec<AccEntry<T>>> {
-        let store = &mut **lock;
-        if let AccStore::Empty = store {
-            let vec = Vec::with_capacity(self.limit as usize);
-            *store = AccStore::Partial(vec);
-        }
-
-        if let AccStore::Partial(v) = store {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
     pub fn add_value(&self, weight: f32, value: T) -> PyResult<()> {
         if !self.enabled() {
             return Ok(());
         }
 
-        let mut lock = self.storage_lock();
-        if self.enabled() {
-            let entry = AccEntry::new(weight, value)?;
-            if let Some(vec) = self.vector_mut(&mut lock) {
-                vec.push(entry);
-            } else {
-                let heap = self.heap_mut(&mut lock);
-                if entry.weight > heap.peek().unwrap().weight {
-                    heap.push(entry);
-                    while heap.len() > self.limit as usize {
-                        heap.pop();
-                    }
+        let mut data = self.storage_lock();
+        let entry = AccEntry::new(weight, value)?;
+        if let Some(vec) = data.vector_mut(self.limit as usize) {
+            vec.push(entry);
+        } else {
+            let heap = data.heap_mut(self.limit as usize);
+            if entry.weight > heap.peek().unwrap().weight {
+                heap.push(entry);
+                while heap.len() > self.limit as usize {
+                    heap.pop();
                 }
             }
         }
@@ -162,6 +115,37 @@ impl<T> ScoreAccumulator<T> {
 }
 
 impl<T> AccStore<T> {
+    fn heap_mut(&mut self, limit: usize) -> &mut BinaryHeap<AccEntry<T>> {
+        match self {
+            AccStore::Full(h) => h,
+            AccStore::Empty => {
+                let heap = BinaryHeap::with_capacity(limit + 1);
+                *self = AccStore::Full(heap);
+                self.heap_mut(limit)
+            }
+            AccStore::Partial(vec) => {
+                let mut heap = BinaryHeap::with_capacity(limit + 1);
+                while let Some(v) = vec.pop() {
+                    heap.push(v);
+                }
+                *self = AccStore::Full(heap);
+                self.heap_mut(limit)
+            }
+        }
+    }
+
+    fn vector_mut(&mut self, limit: usize) -> Option<&mut Vec<AccEntry<T>>> {
+        match self {
+            AccStore::Empty => {
+                let vec = Vec::with_capacity(limit);
+                *self = AccStore::Partial(vec);
+                self.vector_mut(limit)
+            }
+            AccStore::Partial(v) if v.len() < limit => Some(v),
+            _ => None,
+        }
+    }
+
     pub fn total_weight(&self) -> f32 {
         match self {
             Self::Empty => 0.0,
