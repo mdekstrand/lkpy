@@ -18,7 +18,7 @@ mod indirect_hashing;
 mod knn;
 mod progress;
 mod sparse;
-mod veclock;
+
 /// Entry point for LensKit accelerator module.
 #[pymodule]
 fn _accel(m: &Bound<'_, PyModule>) -> PyResult<()> {

@@ -4,12 +4,11 @@
 // Licensed under the MIT license, see LICENSE.md for details.
 // SPDX-License-Identifier: MIT
 
-use std::mem;
-
 use arrow::{
     array::{make_array, Array, ArrayData, Float32Array, Int32Array},
     pyarrow::PyArrowType,
 };
+use parking_lot::Mutex;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -17,7 +16,6 @@ use crate::{
     arrow::checked_array_ref,
     knn::accum::{collect_items_averaged, collect_items_counts, collect_items_summed},
     sparse::{CSRMatrix, CSR},
-    veclock::VecLock,
 };
 
 use super::accum::ScoreAccumulator;
@@ -45,8 +43,10 @@ pub fn score_explicit<'py>(
         let ref_vslice = ref_vs.values();
         let tgt_is: &Int32Array = checked_array_ref("target item", "Int32", &tgt_items)?;
 
-        let mut heaps: Vec<_> = ScoreAccumulator::new_array(sims.n_cols, tgt_is);
-        let locks = VecLock::new(&mut heaps);
+        let heaps: Vec<_> = ScoreAccumulator::new_array(sims.n_cols, tgt_is)
+            .into_iter()
+            .map(|a| Mutex::new(a))
+            .collect();
 
         // we loop reference items, looking for targets.
         // in the common (slow) top-N case, reference items are shorter than targets.
@@ -62,14 +62,13 @@ pub fn score_explicit<'py>(
                     let ti = sims.col_inds.value(i);
                     let sim = sims.values.value(i);
 
-                    let mut acc = locks.lock(ti as usize);
+                    let mut acc = heaps[ti as usize].lock();
                     acc.add_value(max_nbrs, sim, rv)?;
                 }
                 Result::<(), PyErr>::Ok(())
             })?;
 
-        // we don't need the locks anymore
-        mem::drop(locks);
+        let heaps: Vec<_> = heaps.into_iter().map(Mutex::into_inner).collect();
         let out = collect_items_averaged(&heaps, tgt_is, min_nbrs);
         let counts = collect_items_counts(&heaps, tgt_is);
         assert_eq!(out.len(), tgt_is.len());
