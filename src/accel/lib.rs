@@ -14,6 +14,7 @@ mod arrow;
 mod cython;
 mod data;
 mod errors;
+mod flexmf;
 mod funksvd;
 mod indirect_hashing;
 mod knn;
@@ -24,9 +25,10 @@ mod sparse;
 #[pymodule(gil_used = false)]
 fn _accel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
-    knn::register_knn(m)?;
     als::register_als(m)?;
     data::register_data(m)?;
+    flexmf::register_flexmf(m)?;
+    knn::register_knn(m)?;
 
     m.add_class::<funksvd::FunkSVDTrainer>()?;
     m.add_function(wrap_pyfunction!(init_accel_pool, m)?)?;
