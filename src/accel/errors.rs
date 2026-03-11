@@ -10,3 +10,12 @@ macro_rules! ok_or_pyerr {
         $err.ok_or_else(|| <$ety>::new_err(format!($($arg),*)))
     };
 }
+
+#[macro_export]
+macro_rules! check_pyvalue {
+    ($cond:expr, $($arg:expr),*) => {
+        if !$cond {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!($($arg),*)));
+        }
+    };
+}
