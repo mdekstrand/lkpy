@@ -19,6 +19,7 @@ use pyo3::PyResult;
 mod consumer;
 mod coo;
 mod csr;
+mod raw_csr;
 
 pub use crate::arrow::SparseIndexListType;
 pub use crate::arrow::SparseIndexType;
@@ -26,6 +27,7 @@ pub use crate::arrow::SparseRowType;
 pub use consumer::ArrowCSRConsumer;
 pub use coo::{COOMatrix, COOMatrixBuilder};
 pub use csr::{csr_structure, CSRMatrix, CSRStructure, IxVar, CSR};
+pub use raw_csr::{RawCSR, RawCSRBuilder, RawCSRBuilderStage2};
 
 /// Test function to make sure we can convert sparse rows.
 #[pyfunction]

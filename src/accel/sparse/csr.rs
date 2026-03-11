@@ -39,7 +39,7 @@ pub struct CSRStructure<Ix: OffsetSizeTrait = i32> {
     pub col_inds: Int32Array,
 }
 
-/// A compressed sparse row matrix.
+/// A compressed sparse row matrix (Arrow version).
 pub struct CSRMatrix<Ix: OffsetSizeTrait = i32, V: ArrowPrimitiveType = Float32Type> {
     pub n_rows: usize,
     pub n_cols: usize,
