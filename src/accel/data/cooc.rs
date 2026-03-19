@@ -47,7 +47,7 @@ pub fn count_cooc<'py>(
         return Err(PyValueError::new_err("array length mismatch"));
     }
 
-    let mut pb = ProgressHandle::new(progress);
+    let pb = ProgressHandle::new(progress);
 
     let out = py.detach(|| {
         let groups = checked_array_ref::<Int32Array>("groups", "Int32", &groups)?;
@@ -60,7 +60,8 @@ pub fn count_cooc<'py>(
             count_cooc_parallel(ctr, groups, items, n_groups, &pb)
         }
     });
-    pb.shutdown(py)?;
+    pb.flush();
+
     let out = out?;
     debug!(
         "finished counting {} co-occurrances",
@@ -99,7 +100,7 @@ pub fn dense_cooc<'py>(
         return Err(PyValueError::new_err("array length mismatch"));
     }
 
-    let mut pb = ProgressHandle::new(progress);
+    let pb = ProgressHandle::new(progress);
 
     let out = py.detach(|| {
         let groups = checked_array_ref::<Int32Array>("groups", "Int32", &groups)?;
@@ -108,7 +109,8 @@ pub fn dense_cooc<'py>(
         let ctr = DensePairCounter::with_diagonal(n_items, diagonal);
         count_cooc_parallel(ctr, groups, items, n_groups, &pb)
     });
-    pb.shutdown(py)?;
+    pb.flush();
+
     let out = out?;
     debug!("finished counting co-occurrances");
 

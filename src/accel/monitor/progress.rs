@@ -4,26 +4,23 @@
 // Licensed under the MIT license, see LICENSE.md for details.
 // SPDX-License-Identifier: MIT
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::thread::{spawn, JoinHandle};
-use std::time::Duration;
+use std::sync::{Arc, Weak};
 
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::{intern, prelude::*, types::PyDict};
 
-const UPDTATE_TIMEOUT: Duration = Duration::from_millis(200);
-
-struct ProgressThreadState {
-    running: bool,
-    last_count: usize,
-}
+use crate::monitor::thread::{register_monitor, wakeup_monitor};
+use crate::monitor::{ActionState, MonitorAction};
 
 struct ProgressData {
     pb: Py<PyAny>,
     count: AtomicUsize,
-    state: Mutex<ProgressThreadState>,
-    condition: Condvar,
+}
+
+struct ProgressMonitor {
+    data: Weak<ProgressData>,
+    last_count: Cell<usize>,
 }
 
 /// Thin Rust wrapper around a LensKit progress bar.
@@ -32,7 +29,6 @@ struct ProgressData {
 /// to the Python progress bar.
 pub(crate) struct ProgressHandle {
     data: Option<Arc<ProgressData>>,
-    handle: Option<JoinHandle<()>>,
 }
 
 impl ProgressHandle {
@@ -50,27 +46,20 @@ impl ProgressHandle {
             let data = Arc::new(ProgressData {
                 pb,
                 count: AtomicUsize::new(0),
-                state: Mutex::new(ProgressThreadState {
-                    running: true,
-                    last_count: 0,
-                }),
-                condition: Condvar::new(),
             });
-            let d2 = data.clone();
-            let handle = spawn(move || d2.background_update());
-            ProgressHandle {
-                data: Some(data),
-                handle: Some(handle),
-            }
+            let monitor = ProgressMonitor {
+                data: Arc::downgrade(&data),
+                last_count: Cell::new(0),
+            };
+            register_monitor(monitor);
+
+            ProgressHandle { data: Some(data) }
         })
         .unwrap_or_else(Self::null)
     }
 
     pub fn null() -> Self {
-        ProgressHandle {
-            data: None,
-            handle: None,
-        }
+        ProgressHandle { data: None }
     }
 
     pub fn tick(&self) {
@@ -85,23 +74,7 @@ impl ProgressHandle {
 
     /// Force an update of the progress bar.
     pub fn flush(&self) {
-        if let Some(data) = &self.data {
-            data.ping();
-        }
-    }
-
-    pub fn shutdown<'py>(&mut self, py: Python<'py>) -> PyResult<()> {
-        if let Some(data) = self.data.take() {
-            data.shutdown();
-        }
-        if let Some(h) = self.handle.take() {
-            py.detach(|| {
-                h.join()
-                    .map_err(|_e| PyRuntimeError::new_err(format!("progress thread panicked")))
-            })
-        } else {
-            Ok(())
-        }
+        wakeup_monitor();
     }
 }
 
@@ -109,75 +82,47 @@ impl Clone for ProgressHandle {
     fn clone(&self) -> Self {
         ProgressHandle {
             data: self.data.clone(),
-            handle: None,
         }
     }
 }
 
 impl Drop for ProgressHandle {
     fn drop(&mut self) {
-        if let Some(data) = self.data.take() {
-            data.shutdown();
-        }
+        wakeup_monitor();
     }
 }
 
-impl ProgressData {
-    fn background_update(&self) {
-        let mut state = self.acquire_state();
-        while state.running {
-            state = self.wait(state);
-
-            let count = self.count.load(Ordering::Relaxed);
-
-            if count > state.last_count {
-                // drop lock so we don't deadlock with the Python GIL
-                drop(state);
-
-                // send update to Python
-                Python::try_attach(|py| {
-                    let kwargs = PyDict::new(py);
-                    kwargs.set_item(intern!(py, "completed"), count)?;
-                    self.pb
-                        .call_method(py, intern!(py, "update"), (), Some(&kwargs))?;
-                    Ok::<(), PyErr>(())
-                })
-                .unwrap_or(Ok(()))
-                .expect("progress update failed");
-
-                // re-acquire lock, update last count, and loop.
-                // updating the last count is safe because we are the only thread that does so.
-                state = self.acquire_state();
-                state.last_count = count;
+impl MonitorAction for ProgressMonitor {
+    fn get_state(&self) -> ActionState {
+        if let Some(ptr) = self.data.upgrade() {
+            let count = ptr.count.load(Ordering::Relaxed);
+            if count > self.last_count.get() {
+                ActionState::Ready
+            } else {
+                ActionState::Waiting
             }
+        } else {
+            ActionState::Finished
         }
     }
 
-    /// Acquire the state lock.
-    fn acquire_state<'a>(&'a self) -> MutexGuard<'a, ProgressThreadState> {
-        self.state.lock().expect("poisoned lock")
-    }
+    fn run_action<'py>(&self, py: Python<'py>) -> PyResult<bool> {
+        let ptr = if let Some(ptr) = self.data.upgrade() {
+            ptr
+        } else {
+            return Ok(false);
+        };
 
-    /// Wait for a wakeup
-    fn wait<'a>(
-        &'a self,
-        state: MutexGuard<'a, ProgressThreadState>,
-    ) -> MutexGuard<'a, ProgressThreadState> {
-        // wait to be notified, or for timeout
-        let (s2, _res) = self
-            .condition
-            .wait_timeout(state, UPDTATE_TIMEOUT)
-            .expect("poisoned lock");
-        s2
-    }
+        let count = ptr.count.load(Ordering::Relaxed);
 
-    fn shutdown(&self) {
-        let mut state = self.acquire_state();
-        state.running = false;
-        self.ping();
-    }
+        if count > self.last_count.get() {
+            let kwargs = PyDict::new(py);
+            kwargs.set_item(intern!(py, "completed"), count)?;
+            ptr.pb
+                .call_method(py, intern!(py, "update"), (), Some(&kwargs))?;
+            self.last_count.set(count);
+        }
 
-    fn ping(&self) {
-        self.condition.notify_all();
+        Ok(true)
     }
 }

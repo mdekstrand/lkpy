@@ -31,7 +31,7 @@ pub fn compute_similarities<'py>(
     progress: Bound<'py, PyAny>,
 ) -> PyResult<Vec<PyArrowType<ArrayData>>> {
     let (nu, ni) = shape;
-    let mut progress = ProgressHandle::from_input(progress);
+    let progress = ProgressHandle::from_input(progress);
 
     let res = py.detach(|| {
         // extract the data
@@ -59,8 +59,6 @@ pub fn compute_similarities<'py>(
 
         Ok(chunks.iter().map(|a| a.into_data().into()).collect())
     });
-
-    progress.shutdown(py)?;
 
     res
 }
