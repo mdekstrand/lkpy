@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 
 use crate::{
-    progress::ProgressHandle,
+    monitor::progress::ProgressHandle,
     sparse::{ArrowCSRConsumer, CSRMatrix, CSR},
 };
 

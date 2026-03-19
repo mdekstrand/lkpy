@@ -11,13 +11,14 @@ use rayon::{current_num_threads, ThreadPoolBuilder};
 
 mod als;
 mod arrow;
+mod cancel;
 mod cython;
 mod data;
 mod errors;
 mod funksvd;
 mod indirect;
 mod knn;
-mod progress;
+mod monitor;
 mod sparse;
 
 /// Entry point for LensKit accelerator module.

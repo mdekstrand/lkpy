@@ -24,7 +24,7 @@ use crate::{
         AsymmetricPairCounter, ConcurrentPairCounter, DensePairCounter, PairCounter,
         SymmetricPairCounter,
     },
-    progress::ProgressHandle,
+    monitor::progress::ProgressHandle,
 };
 
 /// Count co-occurrances.

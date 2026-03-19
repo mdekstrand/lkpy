@@ -17,7 +17,7 @@ use log::*;
 
 use crate::{
     als::solve::POSV,
-    progress::ProgressHandle,
+    monitor::progress::ProgressHandle,
     sparse::{CSRMatrix, CSR},
 };
 

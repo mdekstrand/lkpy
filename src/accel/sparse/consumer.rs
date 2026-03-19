@@ -13,7 +13,7 @@ use arrow::{
 use arrow_schema::{DataType, Field, Fields};
 use rayon::iter::plumbing::{Consumer, Folder, Reducer};
 
-use crate::progress::ProgressHandle;
+use crate::monitor::progress::ProgressHandle;
 
 use super::SparseIndexType;
 
