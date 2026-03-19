@@ -4,5 +4,4 @@
 // Licensed under the MIT license, see LICENSE.md for details.
 // SPDX-License-Identifier: MIT
 
-pub mod cancel;
-pub mod progress;
+//! Support for cancelling operations.
