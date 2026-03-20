@@ -10,6 +10,9 @@ pub mod cancel;
 pub mod progress;
 mod thread;
 
+pub use cancel::SigCancel;
+pub use cancel::WithCancel;
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ActionState {
     Ready,

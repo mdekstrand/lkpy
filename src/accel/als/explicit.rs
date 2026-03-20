@@ -17,7 +17,7 @@ use log::*;
 
 use crate::{
     als::solve::POSV,
-    monitor::progress::ProgressHandle,
+    monitor::{progress::ProgressHandle, SigCancel},
     sparse::{CSRMatrix, CSR},
 };
 
@@ -46,19 +46,23 @@ pub(super) fn train_explicit_matrix<'py>(
         other.nrows()
     );
 
-    let frob: f32 = py.detach(|| {
-        this.outer_iter_mut()
-            .into_par_iter()
-            .enumerate()
-            .map(|(i, row)| {
-                let f = train_row_solve(&solver, &matrix, i, row, &other, reg);
-                progress.tick();
-                f
-            })
+    let frob: PyResult<f32> = py.detach(|| {
+        let cancel = SigCancel::acquire();
+        cancel
+            .wrap_iter(
+                this.outer_iter_mut()
+                    .into_par_iter()
+                    .enumerate()
+                    .map(|(i, row)| {
+                        let f = train_row_solve(&solver, &matrix, i, row, &other, reg);
+                        progress.tick();
+                        f
+                    }),
+            )
             .sum()
     });
 
-    Ok(frob.sqrt())
+    Ok(frob?.sqrt())
 }
 
 fn train_row_solve(

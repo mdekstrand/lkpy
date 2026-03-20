@@ -60,11 +60,11 @@ impl Monitor {
     }
 
     fn incr_ref(&self) {
-        self.refcount.fetch_add(1, Ordering::Relaxed);
+        self.refcount.fetch_add(1, Ordering::AcqRel);
     }
 
     fn decr_ref(&self) {
-        self.refcount.fetch_sub(1, Ordering::Relaxed);
+        self.refcount.fetch_sub(1, Ordering::AcqRel);
     }
 
     pub fn take_cancel(&self) -> Option<PyErr> {
@@ -161,6 +161,14 @@ impl Drop for Monitor {
     }
 }
 
+impl Clone for MonitorHandle {
+    fn clone(&self) -> Self {
+        let monitor = self.monitor.clone();
+        monitor.incr_ref();
+        MonitorHandle { monitor }
+    }
+}
+
 impl Deref for MonitorHandle {
     type Target = Monitor;
 
@@ -221,14 +229,12 @@ fn run_actions<'py>(
 
 fn run_monitor() {
     let monitor = Monitor::acquire();
-    Python::attach(|py| {
-        py.detach(|| loop {
-            park_timeout(UPDATE_TIMEOUT);
-            if !monitor.pump() {
-                let mut lock = ACTIVE_MONITOR.lock().expect("monitor poisoned");
-                *lock = Weak::new();
-                break;
-            }
-        })
-    });
+    loop {
+        park_timeout(UPDATE_TIMEOUT);
+        if !monitor.pump() {
+            let mut lock = ACTIVE_MONITOR.lock().expect("monitor poisoned");
+            *lock = Weak::new();
+            break;
+        }
+    }
 }
