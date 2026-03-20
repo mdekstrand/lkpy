@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::{Mutex, OnceLock, Weak};
-use std::thread::{self, park_timeout, spawn, JoinHandle};
+use std::thread::{self, park_timeout, JoinHandle};
 use std::{sync::Arc, time::Duration};
 
 use log::*;
