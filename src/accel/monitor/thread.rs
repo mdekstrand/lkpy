@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::mem;
 use std::sync::{Mutex, OnceLock, Weak};
-use std::thread::{park_timeout, spawn, JoinHandle};
+use std::thread::{self, park_timeout, spawn, JoinHandle};
 use std::{sync::Arc, time::Duration};
 
 use log::*;
@@ -51,7 +51,12 @@ impl Monitor {
     }
 
     fn ensure_running(&self) {
-        self.thread.get_or_init(|| spawn(run_monitor));
+        self.thread.get_or_init(|| {
+            thread::Builder::new()
+                .name("AccelMonitor".into())
+                .spawn(run_monitor)
+                .expect("failed to spawn thread")
+        });
     }
 
     fn pump(&self) -> bool {
