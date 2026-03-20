@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 use crate::monitor::{ActionState, MonitorAction};
 
 type ActionBox = Box<dyn MonitorAction + 'static>;
-const UPDATE_TIMEOUT: Duration = Duration::from_millis(200);
+const UPDATE_TIMEOUT: Duration = Duration::from_millis(100);
 
 static ACTIVE_MONITOR: Mutex<Weak<Monitor>> = Mutex::new(Weak::new());
 
