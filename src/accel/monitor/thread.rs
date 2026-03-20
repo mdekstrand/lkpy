@@ -5,9 +5,11 @@
 // SPDX-License-Identifier: MIT
 
 use std::collections::VecDeque;
-use std::mem;
+use std::ops::Deref;
+use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock, Weak};
 use std::thread::{self, park_timeout, JoinHandle};
+use std::{mem, ptr};
 use std::{sync::Arc, time::Duration};
 
 use log::*;
@@ -21,9 +23,16 @@ const UPDATE_TIMEOUT: Duration = Duration::from_millis(100);
 static ACTIVE_MONITOR: Mutex<Weak<Monitor>> = Mutex::new(Weak::new());
 
 /// Data tracked by the monitoring thread.
-struct Monitor {
+pub(super) struct Monitor {
     thread: OnceLock<JoinHandle<()>>,
     actions: Mutex<Vec<ActionBox>>,
+    refcount: AtomicU32,
+    cancel_err: AtomicPtr<PyErr>,
+}
+
+/// A handle to the monitor, making sure it stays alive.
+pub(super) struct MonitorHandle {
+    monitor: Arc<Monitor>,
 }
 
 impl Monitor {
@@ -31,23 +40,64 @@ impl Monitor {
         Monitor {
             thread: OnceLock::new(),
             actions: Mutex::new(vec![]),
+            refcount: AtomicU32::new(0),
+            cancel_err: AtomicPtr::new(ptr::null_mut()),
         }
     }
 
-    fn acquire() -> Arc<Monitor> {
+    pub fn acquire() -> MonitorHandle {
         let mut lock = ACTIVE_MONITOR.lock().expect("monitor thread poisoned");
-        if let Some(tr) = lock.upgrade() {
-            tr
+        let monitor = if let Some(mr) = lock.upgrade() {
+            mr
         } else {
             let mon = Arc::new(Monitor::new());
             *lock = Arc::downgrade(&mon);
             mon
+        };
+        monitor.incr_ref();
+        monitor.ensure_running();
+        MonitorHandle { monitor }
+    }
+
+    fn incr_ref(&self) {
+        self.refcount.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn decr_ref(&self) {
+        self.refcount.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn take_cancel(&self) -> Option<PyErr> {
+        let ptr = self.cancel_err.load(Ordering::Relaxed);
+        if ptr.is_null() {
+            None
+        } else {
+            match self.cancel_err.compare_exchange(
+                ptr,
+                ptr::null_mut(),
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(p2) => {
+                    assert!(p2 == ptr);
+                    // SAFETY: we have the only reference to this error.
+                    let ptr = unsafe { Box::from_raw(ptr) };
+                    Some(*ptr)
+                }
+                Err(_) => None,
+            }
         }
     }
 
-    fn add_action(&self, action: ActionBox) {
+    pub fn ping(&self) {
+        if let Some(th) = self.thread.get() {
+            th.thread().unpark();
+        }
+    }
+
+    pub fn add_action<A: MonitorAction + 'static>(&self, action: A) {
         let mut actions = self.actions.lock().expect("monitor poisoned");
-        actions.push(action);
+        actions.push(Box::new(action));
     }
 
     fn ensure_running(&self) {
@@ -60,32 +110,83 @@ impl Monitor {
     }
 
     fn pump(&self) -> bool {
+        let count = self.refcount.load(Ordering::Relaxed);
+        if count > 0 {
+            Python::attach(|py| {
+                if let Err(e) = py.check_signals() {
+                    let eptr = ptr::from_mut(Box::leak(Box::new(e)));
+                    match self.cancel_err.compare_exchange(
+                        ptr::null_mut(),
+                        eptr,
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => (),
+                        Err(_) => unsafe {
+                            // SAFETY: we failed to store the pointer, so we are
+                            // the owner.
+
+                            // re-box and drop the pointer.
+                            let _ = Box::from_raw(eptr);
+                        },
+                    }
+                }
+                self.run_actions(Some(py));
+            });
+            true
+        } else {
+            self.run_actions(None)
+        }
+    }
+
+    fn run_actions<'py>(&self, maybe_py: Option<Python<'py>>) -> bool {
         let mut actions = self.actions.lock().expect("monitor thread poisoned");
         let n = actions.len();
         let to_run = mem::replace(&mut *actions, Vec::with_capacity(n));
         let mut to_run = VecDeque::from(to_run);
 
-        run_actions(&mut to_run, &mut *actions, None);
+        run_actions(&mut to_run, &mut *actions, maybe_py);
         actions.len() > 0
     }
 }
 
-/// Register a new monitor action with the monitor thread.  If no monitor thread is
-/// running, one is started.
-pub(super) fn register_monitor<M: MonitorAction + 'static>(action: M) {
-    let monitor = Monitor::acquire();
+impl Drop for Monitor {
+    fn drop(&mut self) {
+        let ptr = self.cancel_err.load(Ordering::Relaxed);
+        if !ptr.is_null() {
+            // SAFETY: since we are in drop, no one else has the thread
+            let _ptr = unsafe { Box::from_raw(ptr) };
+            // drop the pointer
+        }
+    }
+}
 
-    monitor.add_action(Box::new(action));
-    monitor.ensure_running();
+impl Deref for MonitorHandle {
+    type Target = Monitor;
+
+    fn deref(&self) -> &Self::Target {
+        self.monitor.deref()
+    }
+}
+
+impl AsRef<Monitor> for MonitorHandle {
+    fn as_ref(&self) -> &Monitor {
+        &self.monitor
+    }
+}
+
+impl Drop for MonitorHandle {
+    fn drop(&mut self) {
+        self.monitor.decr_ref();
+        self.monitor.ping();
+    }
 }
 
 /// Send a wakeup signal to the monitor thread, if one is running.
 pub(super) fn wakeup_monitor() {
     let lock = ACTIVE_MONITOR.lock().expect("monitor poisoned");
     if let Some(mon) = lock.upgrade() {
-        if let Some(th) = mon.thread.get() {
-            th.thread().unpark();
-        }
+        mon.ping();
     }
 }
 

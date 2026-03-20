@@ -10,7 +10,7 @@ use std::sync::{Arc, Weak};
 
 use pyo3::{intern, prelude::*, types::PyDict};
 
-use crate::monitor::thread::{register_monitor, wakeup_monitor};
+use crate::monitor::thread::{wakeup_monitor, Monitor};
 use crate::monitor::{ActionState, MonitorAction};
 
 struct ProgressData {
@@ -51,7 +51,7 @@ impl ProgressHandle {
                 data: Arc::downgrade(&data),
                 last_count: Cell::new(0),
             };
-            register_monitor(monitor);
+            Monitor::acquire().add_action(monitor);
 
             ProgressHandle { data: Some(data) }
         })
