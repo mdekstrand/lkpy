@@ -61,6 +61,7 @@ doc = [
   "sphinx >=9.0",
   "sphinx-autoapi ~=3.8",
   "sphinxext-opengraph >=0.5",
+  "sphinx-click ~=6.2",
   "sphinxcontrib-bibtex >=2.0",
   "pydata-sphinx-theme ~=0.16.0",
   "myst-nb >=0.13",
