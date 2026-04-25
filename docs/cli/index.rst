@@ -10,6 +10,9 @@ of operations for LensKit data and pipelines.
 
 The LensKit CLI works through subcommands (like ``git``).
 
+.. click:: lenskit.cli.doctor:doctor
+    :prog: lenskit doctor
+
 Base Options
 ~~~~~~~~~~~~
 

@@ -49,6 +49,7 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_new_tab_link",
     "autoapi.extension",
+    "sphinx_click",
     "lk_stability",
 ]
 
