@@ -106,9 +106,11 @@ demo = [
   "seaborn >=0.13.2,<0.14",
 ]
 doc = [
+  "great-docs",
   "myst-nb >=0.13",
   "packaging >=25.0",
   "pydata-sphinx-theme ~=0.23.0",
+  "quarto-cli>=1.11.9",
   "sphinx-autoapi ~=3.8",
   "sphinx-copybutton>=0.5.2",
   "sphinx-new-tab-link>=0.8.0",
@@ -238,6 +240,7 @@ conflicts = [[{ group = "cpu" }, { group = "gpu" }]]
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", group = "cpu" }, { index = "pytorch-gpu", group = "gpu" }]
+great-docs = { git = "https://github.com/posit-dev/great-docs.git" }
 
 # use the LensKit index to prefer CPU PyTorch
 [[tool.uv.index]]
