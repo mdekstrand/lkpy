@@ -78,3 +78,10 @@ conda*.lock
 .vscode/mise-tools
 # pixi environments
 .pixi
+
+# Great Docs build output
+/docs/_quarto/
+/docs/_site/
+/docs/.cache/
+/.great-docs-build/
+/.great-docs/
