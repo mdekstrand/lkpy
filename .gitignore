@@ -49,6 +49,7 @@ scratch/
 /dist/
 /target/
 /output/
+/site/
 *.egg-info
 *.pyd
 *.so
