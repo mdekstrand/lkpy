@@ -106,6 +106,7 @@ demo = [
   "seaborn >=0.13.2,<0.14",
 ]
 doc = [
+  "mkdocstrings-python>=2.0.11",
   "myst-nb >=0.13",
   "packaging >=25.0",
   "pydata-sphinx-theme ~=0.23.0",
@@ -117,6 +118,7 @@ doc = [
   "sphinxcontrib-bibtex >=2.0",
   "sphinxcontrib-mermaid ~=2.0",
   "sphinxext-opengraph >=0.5",
+  "zensical>=0.1.1",
   { include-group = "scripting" },
 ]
 gpu = ["torch ~=2.4"]
