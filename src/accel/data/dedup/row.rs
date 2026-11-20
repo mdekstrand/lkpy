@@ -8,17 +8,17 @@ use std::collections::HashSet;
 
 use arrow::array::{BooleanArray, BooleanBuilder};
 use arrow::error::Result as ArrowResult;
-use arrow::row::OwnedRow;
 use arrow::{
     datatypes::Schema,
     row::{RowConverter, SortField},
 };
+use xxhash_rust::xxh64::xxh64;
 
 use crate::data::dedup::DedupMemory;
 
 pub(super) struct RowMemory {
     converter: RowConverter,
-    table: HashSet<OwnedRow>,
+    table: HashSet<u64>,
 }
 
 impl RowMemory {
@@ -46,8 +46,8 @@ impl DedupMemory for RowMemory {
         let cols = batch.columns();
         let mut result = BooleanBuilder::with_capacity(batch.num_rows());
         for row in self.converter.convert_columns(cols)?.into_iter() {
-            let row = row.owned();
-            result.append_value(self.table.insert(row))
+            let hash = xxh64(row.data(), 42);
+            result.append_value(self.table.insert(hash))
         }
         Ok(result.finish())
     }
